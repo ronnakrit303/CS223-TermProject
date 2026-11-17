@@ -1,0 +1,205 @@
+# =============================================================================
+# CS223-TermProject | .gitignore
+# =============================================================================
+# Purpose : Keep secrets, generated files, machine-specific configuration,
+#           large VM images, and temporary artifacts out of the PUBLIC repo.
+# Project : OpenStack 2026.1 / Kolla Ansible / Two-node lab
+#
+# IMPORTANT:
+#   - .gitignore applies only to untracked files. Already-tracked files remain
+#     tracked until removed from the Git index/history.
+#   - .gitignore is NOT a secret scanner or a security boundary.
+#   - Inspect screenshots, terminal output, and text before committing them.
+#   - Keep docs/*.md, config/*.example, and evidence/**/*.png under version
+#     control after manually checking for confidential information.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 01. Kolla / OpenStack credentials — NEVER commit
+# -----------------------------------------------------------------------------
+# Kolla service credentials and generated client credentials.
+**/passwords.yml
+**/passwords.yaml
+**/passwords.yml.*
+**/passwords.yaml.*
+**/admin-openrc.sh
+**/*-openrc.sh
+**/openrc.sh
+**/clouds.yaml
+**/clouds-public.yaml
+**/secure.yaml
+**/secure.yml
+
+# Credentials used by tools, deployment hosts, or operators.
+**/ansible-vault-password*
+**/.vault_pass*
+**/.config/openstack/
+**/.aws/
+**/.kube/
+**/.ssh/
+
+# -----------------------------------------------------------------------------
+# 02. Original deployment configuration — publish reviewed examples instead
+# -----------------------------------------------------------------------------
+# Local/production configuration may include internal endpoints, secrets,
+# service passwords, or SSH arguments. Use the sanitized files in config/.
+**/globals.yml
+**/globals.yml.*
+**/multinode
+**/multinode.bak
+**/multinode.backup
+**/neutron.conf
+**/neutron.conf.bak
+**/neutron.conf.backup
+**/ml2_conf.ini
+**/ml2_conf.ini.bak
+**/ml2_conf.ini.backup
+
+# Full Kolla config copies and service-generated state must not be published.
+**/etc/kolla/
+**/kolla-config-backup/
+**/kolla-backup/
+**/kolla-logs/
+
+# -----------------------------------------------------------------------------
+# 03. Private keys, signing materials, and certificates with private key data
+# -----------------------------------------------------------------------------
+**/id_rsa
+**/id_dsa
+**/id_ecdsa
+**/id_ed25519
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.kdbx
+**/*.asc
+
+# -----------------------------------------------------------------------------
+# 04. Environment variables and local credential stores
+# -----------------------------------------------------------------------------
+# Preserve .env.example and similarly named documentation templates.
+**/.env
+**/.env.local
+**/.env.*.local
+**/secrets.env
+**/*.secret.env
+**/.netrc
+**/.pypirc
+**/.python_history
+**/.bash_history
+**/.zsh_history
+
+# -----------------------------------------------------------------------------
+# 05. Python, Kolla Ansible, and CLI virtual environments / generated files
+# -----------------------------------------------------------------------------
+**/.venv/
+**/venv/
+**/env/
+**/kolla-venv/
+**/openstack-cli-venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.tox/
+**/.nox/
+**/.coverage
+**/.coverage.*
+**/htmlcov/
+**/pip-wheel-metadata/
+
+# -----------------------------------------------------------------------------
+# 06. Ansible and Kolla runtime artifacts
+# -----------------------------------------------------------------------------
+**/.ansible/
+**/*.retry
+**/ansible.log
+**/ansible.cfg.local
+**/facts_cache/
+**/fact_cache/
+
+# -----------------------------------------------------------------------------
+# 07. Logs, diagnostic dumps, and temporary output
+# -----------------------------------------------------------------------------
+# Logs can contain token values, bearer URLs, service credentials, etc.
+**/*.log
+**/*.log.*
+**/*.trace
+**/*.stackdump
+**/core
+**/core.*
+**/*.pid
+**/*.pid.lock
+**/logs/
+**/tmp/
+**/temp/
+**/.cache/
+**/cache/
+
+# Do not commit raw shell outputs unless reviewed and intentionally documented.
+**/*.swp
+**/*.swo
+**/*~
+**/*.orig
+**/*.rej
+**/*.bak
+**/*.backup
+
+# -----------------------------------------------------------------------------
+# 08. VM / image / disk artifacts — use Glance or external storage instead
+# -----------------------------------------------------------------------------
+**/*.qcow2
+**/*.qcow
+**/*.vmdk
+**/*.vdi
+**/*.vhd
+**/*.vhdx
+**/*.vma
+**/*.ova
+**/*.iso
+**/*.img
+**/*.raw
+**/*.vfd
+
+# -----------------------------------------------------------------------------
+# 09. Local editor / operating-system state
+# -----------------------------------------------------------------------------
+**/.idea/
+**/.vscode/
+**/.DS_Store
+**/Thumbs.db
+**/Desktop.ini
+**/$RECYCLE.BIN/
+**/.Spotlight-V100/
+**/.Trashes/
+
+# -----------------------------------------------------------------------------
+# 10. Temporary build artifacts
+# -----------------------------------------------------------------------------
+**/build/
+**/dist/
+**/.output/
+**/.tmp/
+
+# -----------------------------------------------------------------------------
+# 11. Public project files: keep these trackable
+# -----------------------------------------------------------------------------
+# Intentionally NOT ignored (check and redact before committing):
+#   README.md
+#   docs/*.md
+#   config/multinode.example
+#   config/globals.example.yml
+#   config/neutron/neutron.conf.example
+#   config/neutron/ml2_conf.ini.example
+#   evidence/**/*.png
+#   scripts/verify-deployment.sh
+#
+# Do not add blanket rules like `*.png`, `*.md`, `*.yml`, `config/`, or
+# `evidence/`; they would hide the project's intended documentation/evidence.
+# =============================================================================
+# END
+# =============================================================================

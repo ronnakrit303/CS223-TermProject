@@ -1,0 +1,714 @@
+# =============================================================================
+# CS223-TermProject | Kolla Ansible Multinode Inventory Example
+# =============================================================================
+# Project       : CS223 OpenStack Installation & Deployment
+# File          : config/multinode.example
+# Stack         : OpenStack 2026.1 / Kolla Ansible 22.x (stable/2026.1)
+# OS            : Ubuntu Server 24.04 LTS
+# Environment   : Non-HA academic lab, 1 controller + 1 compute
+# Reference     : https://github.com/openstack/kolla-ansible/blob/stable/2026.1/ansible/inventory/multinode
+#
+# ข้อควรทราบก่อนใช้งาน
+# ---------------------
+# 1. ไฟล์นี้เป็นตัวอย่างสำหรับเผยแพร่บน PUBLIC GitHub ไม่ใช่สำเนา ~/multinode
+#    ที่ใช้งานจริง ข้อมูล Node/IP อ้างอิงจาก Lab แต่ค่า SSH อาจต่างจากไฟล์จริง
+# 2. ระบบปัจจุบัน Deploy สำเร็จแล้ว อย่าแทนที่ ~/multinode หรือ Deploy ซ้ำ
+#    โดยไม่จำเป็น
+# 3. ห้าม Commit SSH Private Key, Password, admin-openrc.sh, clouds.yaml,
+#    passwords.yml รวมถึง Log/Console Token ที่ยังไม่ได้ปกปิดข้อมูลลับ
+# 4. Inventory ใช้รูปแบบ Ansible INI (ไม่ใช่ YAML) และต้องรักษาชื่อ Groups
+# 5. การอยู่ใน Service Group หมายถึงตำแหน่งติดตั้ง ไม่ได้หมายความว่าเปิดบริการ
+#    การ Enable/Disable ใช้ /etc/kolla/globals.yml และค่า Default ของ Kolla
+# 6. เก็บโครงสร้าง Service Groups จาก upstream stable/2026.1 อย่างครบถ้วน
+#    ถ้า Upgrade Release ให้ตรวจเทียบกับ Inventory ต้นฉบับของเวอร์ชันใหม่
+#
+# โครงสร้าง LAB จริง (OpenStack ชั้นใน)
+# ---------------------------------
+# Controller / deployment host: controller01 -> 192.168.1.160 (ens3)
+# Compute node                : compute01    -> 192.168.1.7   (ens3)
+# API + tunnel interface      : ens3
+# Example external interface : dummy0 on controller01 (lab only)
+# Underlay MTU                : 1450
+# VXLAN tenant-network MTU    : 1400 (observed cs223-private-net)
+# Private tenant subnet       : 10.10.10.0/24 (managed via Neutron, NOT Ansible)
+# Test guest                  : cs223-test-vm, 10.10.10.117/24 on compute01
+#
+# หมายเหตุด้าน SSH / Ansible
+# -------------------------
+# - ใช้ controller01 เป็น Deployment Host และรัน Kolla Ansible ด้วย ubuntu
+# - ansible_host เป็น Underlay Private IP ไม่ใช่ Floating IP ของ VM ชั้นนอก
+# - ชื่อ Host ต้อง Resolve ได้ตามที่ OpenStack Services ต้องการ
+#   ตรวจบนทั้งสอง Node: getent hosts controller01 compute01
+# - ansible_become=true ต้องใช้ sudo ได้โดยไม่ติด Prompt ที่ทำให้ Ansible ค้าง
+# - ไม่ใส่ที่อยู่ SSH Private Key ลงในตัวอย่าง Public นี้
+#   ให้ใช้ SSH Agent/Key ที่ทดสอบแล้วหรือกำหนดค่าในไฟล์ส่วนตัวเท่านั้น
+# - หาก Inventory จริงใช้ ansible_connection=local สำหรับ controller01
+#   ต้องรักษาค่าที่ทดสอบแล้ว ไม่ควรเปลี่ยนตามตัวอย่างโดยอัตโนมัติ
+#
+# คำสั่งตรวจสอบ (รันบน controller01 จาก Root ของ Repo หลังเทียบกับไฟล์จริง):
+#   source ~/kolla-venv/bin/activate
+#   ansible-inventory -i config/multinode.example --graph
+#   ansible-inventory -i config/multinode.example --host controller01
+#   ansible-inventory -i config/multinode.example --host compute01
+#   ansible -i config/multinode.example baremetal -m ping
+#
+# สำหรับระบบที่ใช้งานอยู่จริง ให้ใช้ ~/multinode เดิมที่ผ่านการ Deploy:
+#   kolla-ansible prechecks -i ~/multinode   # only when a fresh check is needed
+#
+# เอกสารที่เกี่ยวข้อง: docs/02-architecture.md, docs/03-environment-setup.md,
+#               docs/04-kolla-deployment.md, docs/07-handover.md
+# =============================================================================
+
+# =============================================================================
+# 1. PRIMARY NODE ROLES: ส่วนที่ต้องแก้เมื่อเปลี่ยนจำนวน/ที่อยู่ Node
+# =============================================================================
+
+# Control Plane: API, Database, Messaging, Horizon และ Nova Scheduler
+[control]
+controller01 ansible_host=192.168.1.160 ansible_user=ubuntu ansible_become=true
+
+# Network Node: Neutron L3/DHCP/Metadata และ OVS
+# โปรเจกต์นี้ให้ Controller ทำหน้าที่ Network Node ด้วย (ไม่มี network01)
+[network]
+controller01
+
+# Compute Node: รัน VM ผ่าน Nova Compute + libvirt/QEMU/KVM
+[compute]
+compute01 ansible_host=192.168.1.7 ansible_user=ubuntu ansible_become=true
+
+# บทบาท Monitoring ไม่ได้เปิด Prometheus อัตโนมัติ
+[monitoring]
+controller01
+
+# บทบาท Storage ไม่ได้เปิด Cinder อัตโนมัติ
+# Lab นี้ไม่ได้เปิด Cinder ใน Configuration ปัจจุบัน
+[storage]
+controller01
+
+# รัน Ansible จาก controller01 ซึ่งเป็น Deployment Host
+# localhost ใน [deployment] เป็นส่วนหนึ่งของ Inventory ต้นฉบับ
+[deployment]
+localhost ansible_connection=local
+
+# =============================================================================
+# 2. SHARED / AGGREGATE GROUPS: รักษา Parent-Child ตามต้นฉบับ
+# =============================================================================
+
+# ชื่อ baremetal เป็นชื่อ Group ที่ Kolla ใช้ แม้ Node ของเราจะเป็น Ubuntu VMs
+# ซึ่งรันอยู่บน OpenStack ชั้นนอกของมหาวิทยาลัยก็ตาม
+[baremetal:children]
+control
+network
+compute
+storage
+monitoring
+
+[tls-backend:children]
+control
+network
+
+# =============================================================================
+# 3. KOLLA SERVICE PLACEMENT: Group Mappings มาตรฐาน stable/2026.1
+# =============================================================================
+# มีการประกาศ Groups ไว้แม้บาง Services จะไม่ได้เปิดใช้ใน Lab
+# ห้ามลบ Group ออกเพียงเพราะไม่พบ Container ของบริการนั้น
+# Services ที่ตรวจสอบใช้งานจริง ได้แก่ Keystone, Glance, Nova, Neutron,
+# Horizon, Placement และ Dependencies เช่น MariaDB, RabbitMQ, Memcached
+#
+# Non-HA Configuration อยู่ใน globals.yml (ไม่ใช่ไฟล์ Inventory นี้):
+#   enable_haproxy: false
+#   enable_keepalived: false
+#   enable_loadbalancer: false
+#   enable_proxysql: false
+# หมายเหตุ: อย่านำบรรทัด YAML เหล่านี้มาใส่เป็นค่าที่ทำงานในไฟล์ INI
+# =============================================================================
+
+# Common configuration/maintenance containers on all node roles.
+# --- Shared / Core Services -------------------------------------------------
+[common:children]
+control
+network
+compute
+storage
+monitoring
+
+[collectd:children]
+compute
+
+[grafana:children]
+monitoring
+
+[etcd:children]
+control
+
+[prometheus:children]
+monitoring
+
+[hacluster:children]
+control
+
+[hacluster-remote:children]
+compute
+
+# Placement group only; HAProxy/Keepalived disabled in CS223 globals.yml.
+[loadbalancer:children]
+network
+
+# Database is hosted on controller01 in this non-HA lab.
+[mariadb:children]
+control
+
+# Message broker; correct hostname resolution is required.
+[rabbitmq:children]
+control
+
+# Identity/authentication API lives on controller01.
+[keystone:children]
+control
+
+# Image service (CirrOS image uploaded during verification).
+[glance:children]
+control
+
+# Nova control-plane components; compute agent is managed by Kolla.
+[nova:children]
+control
+
+# Neutron network-node agents live on controller01.
+[neutron:children]
+network
+
+# OVS components on both controller/network and compute.
+[openvswitch:children]
+network
+compute
+manila-share
+
+# Defined here for completeness. Cinder disabled in the CS223 deployment.
+[cinder:children]
+control
+
+[cloudkitty:children]
+control
+
+[memcached:children]
+control
+
+# Web dashboard; accessed from Windows through SSH local-port-forward.
+[horizon:children]
+control
+
+[barbican:children]
+control
+
+# Defined here for completeness. Heat disabled in the CS223 deployment.
+[heat:children]
+control
+
+[ironic:children]
+control
+
+[magnum:children]
+control
+
+[mistral:children]
+control
+
+[manila:children]
+control
+
+[ceilometer:children]
+control
+
+[aodh:children]
+control
+
+[cyborg:children]
+control
+
+[gnocchi:children]
+control
+
+[tacker:children]
+control
+
+[trove:children]
+control
+
+[watcher:children]
+control
+
+[octavia:children]
+control
+
+[designate:children]
+control
+
+# Placement tracks compute inventory used by Nova scheduler.
+[placement:children]
+control
+
+[bifrost:children]
+deployment
+
+[skyline:children]
+control
+
+# Kept for compatibility with stable/2026.1 inventory.
+[redis:children]
+control
+
+[valkey:children]
+control
+
+[blazar:children]
+control
+
+[letsencrypt:children]
+loadbalancer
+
+# --- Shared Container Support ------------------------------------------------
+[cron:children]
+common
+
+[fluentd:children]
+common
+
+[kolla_logs:children]
+common
+
+[kolla_toolbox:children]
+common
+
+[opensearch:children]
+control
+
+[opensearch-dashboards:children]
+opensearch
+
+# Glance image API on controller.
+# --- Glance (Image Service) --------------------------------------------------
+[glance-api:children]
+glance
+
+# --- Nova (Compute Control Plane) -------------------------------------------
+[nova-api:children]
+nova
+
+[nova-conductor:children]
+nova
+
+[nova-metadata:children]
+nova
+
+[nova-super-conductor:children]
+nova
+
+# Provides noVNC console proxy; access via local SSH tunnel.
+[nova-novncproxy:children]
+nova
+
+[nova-scheduler:children]
+nova
+
+[nova-spicehtml5proxy:children]
+nova
+
+[nova-compute-ironic:children]
+nova
+
+[nova-serialproxy:children]
+nova
+
+# --- Neutron (Networking Services) ------------------------------------------
+[ironic-neutron-agent:children]
+neutron
+
+[neutron-bgp-dragent:children]
+neutron
+
+# Assigns DHCP addresses on the tenant network.
+[neutron-dhcp-agent:children]
+neutron
+
+[neutron-infoblox-ipam-agent:children]
+neutron
+
+# Provides L3 networking when a router is configured.
+[neutron-l3-agent:children]
+neutron
+
+# Must stay co-located with relevant network agents where required.
+[neutron-metadata-agent:children]
+neutron
+
+[neutron-metering-agent:children]
+neutron
+
+[neutron-periodic-worker:children]
+control
+
+[neutron-rpc-server:children]
+control
+
+# Neutron API runs on controller even when network group is separate.
+[neutron-server:children]
+control
+
+[neutron-ovn-agent:children]
+compute
+network
+
+[neutron-ovn-maintenance-worker:children]
+control
+
+[neutron-ovn-metadata-agent:children]
+compute
+network
+
+[neutron-ovn-vpn-agent:children]
+neutron
+
+# --- Cinder (Volume Service; disabled in this Lab) --------------------------
+[cinder-api:children]
+cinder
+
+[cinder-backup:children]
+cinder
+
+[cinder-backup-lvm:children]
+storage
+
+[cinder-backup-multiple:children]
+cinder
+storage
+
+[cinder-scheduler:children]
+cinder
+
+[cinder-volume:children]
+cinder
+
+[cinder-volume-lvm:children]
+storage
+
+[cinder-volume-multiple:children]
+cinder
+storage
+
+# --- CloudKitty (Optional Rating Service) ----------------------------------
+[cloudkitty-api:children]
+cloudkitty
+
+[cloudkitty-processor:children]
+cloudkitty
+
+# --- Block Storage / iSCSI Support ------------------------------------------
+[iscsid:children]
+compute
+storage
+ironic
+
+[tgtd:children]
+storage
+
+# --- Manila (Optional Shared Filesystems) ----------------------------------
+[manila-api:children]
+manila
+
+[manila-scheduler:children]
+manila
+
+[manila-share:children]
+network
+
+[manila-data:children]
+manila
+
+# --- Barbican (Optional Secret Management) ---------------------------------
+[barbican-api:children]
+barbican
+
+[barbican-keystone-listener:children]
+barbican
+
+[barbican-worker:children]
+barbican
+
+# --- Heat (Orchestration; disabled in this Lab) -----------------------------
+[heat-api:children]
+heat
+
+[heat-api-cfn:children]
+heat
+
+[heat-engine:children]
+heat
+
+# --- Ironic (Optional Bare Metal) ------------------------------------------
+[ironic-api:children]
+ironic
+
+[ironic-conductor:children]
+ironic
+
+[ironic-dnsmasq:children]
+ironic
+
+[ironic-tftp:children]
+ironic
+
+[ironic-http:children]
+ironic
+
+# --- Magnum / Mistral / Telemetry and Other Optional Services ---------------
+[magnum-api:children]
+magnum
+
+[magnum-conductor:children]
+magnum
+
+[mistral-api:children]
+mistral
+
+[mistral-executor:children]
+mistral
+
+[mistral-engine:children]
+mistral
+
+[mistral-event-engine:children]
+mistral
+
+[ceilometer-central:children]
+ceilometer
+
+[ceilometer-notification:children]
+ceilometer
+
+[ceilometer-compute:children]
+compute
+
+[ceilometer-ipmi:children]
+compute
+
+[aodh-api:children]
+aodh
+
+[aodh-evaluator:children]
+aodh
+
+[aodh-listener:children]
+aodh
+
+[aodh-notifier:children]
+aodh
+
+[cyborg-api:children]
+cyborg
+
+[cyborg-agent:children]
+compute
+
+[cyborg-conductor:children]
+cyborg
+
+[gnocchi-api:children]
+gnocchi
+
+[gnocchi-statsd:children]
+gnocchi
+
+[gnocchi-metricd:children]
+gnocchi
+
+[trove-api:children]
+trove
+
+[trove-conductor:children]
+trove
+
+[trove-taskmanager:children]
+trove
+
+[multipathd:children]
+compute
+storage
+
+[watcher-api:children]
+watcher
+
+[watcher-engine:children]
+watcher
+
+[watcher-applier:children]
+watcher
+
+[octavia-api:children]
+octavia
+
+[octavia-driver-agent:children]
+octavia
+
+[octavia-health-manager:children]
+octavia
+
+[octavia-housekeeping:children]
+octavia
+
+[octavia-worker:children]
+octavia
+
+[designate-api:children]
+designate
+
+[designate-central:children]
+designate
+
+[designate-producer:children]
+designate
+
+[designate-mdns:children]
+network
+
+[designate-worker:children]
+designate
+
+[designate-sink:children]
+designate
+
+[designate-backend-bind9:children]
+designate
+
+# Placement API on controller.
+# --- Placement (Resource Tracking) -----------------------------------------
+[placement-api:children]
+placement
+
+[skyline-apiserver:children]
+skyline
+
+[skyline-console:children]
+skyline
+
+[tacker-server:children]
+tacker
+
+[tacker-conductor:children]
+tacker
+
+[blazar-api:children]
+blazar
+
+[blazar-manager:children]
+blazar
+
+# --- Prometheus (Optional Monitoring / Exporters) --------------------------
+[prometheus-node-exporter:children]
+monitoring
+control
+compute
+network
+storage
+
+[prometheus-mysqld-exporter:children]
+mariadb
+
+[prometheus-memcached-exporter:children]
+memcached
+
+[prometheus-cadvisor:children]
+monitoring
+control
+compute
+network
+storage
+
+[prometheus-alertmanager:children]
+monitoring
+
+[prometheus-openstack-exporter:children]
+monitoring
+
+[prometheus-elasticsearch-exporter:children]
+opensearch
+
+[prometheus-blackbox-exporter:children]
+monitoring
+
+[prometheus-libvirt-exporter:children]
+compute
+
+[prometheus-openstack-network-exporter:children]
+compute
+network
+
+[prometheus-valkey-exporter:children]
+valkey
+
+# --- Masakari (Optional Instance HA) ----------------------------------------
+[masakari-api:children]
+control
+
+[masakari-engine:children]
+control
+
+[masakari-hostmonitor:children]
+control
+
+[masakari-instancemonitor:children]
+compute
+
+# Present in standard inventory but OVS was selected for this lab.
+# --- OVN (Optional Backend; OVS is used in this Lab) ------------------------
+[ovn-controller:children]
+ovn-controller-compute
+ovn-controller-network
+
+[ovn-controller-compute:children]
+compute
+
+[ovn-controller-network:children]
+network
+
+[ovn-database:children]
+control
+
+[ovn-northd:children]
+ovn-database
+
+[ovn-nb-db:children]
+ovn-database
+
+[ovn-sb-db:children]
+ovn-database
+
+[ovn-sb-db-relay:children]
+ovn-database
+
+# --- Let's Encrypt (Optional TLS Automation) ------------------------------
+[letsencrypt-webserver:children]
+letsencrypt
+
+[letsencrypt-lego:children]
+letsencrypt
+
+# =============================================================================
+# 4. คำอธิบายการ Mapping Node ของโปรเจกต์นี้
+# =============================================================================
+# Role Membership ที่คาดหวัง (Services จริงขึ้นกับ globals.yml):
+#   control    -> controller01 (192.168.1.160)
+#   network    -> controller01 (Neutron DHCP/L3/metadata/OVS)
+#   compute    -> compute01 (192.168.1.7, Nova Compute and KVM)
+#   monitoring -> controller01 (placement role, not service enablement)
+#   storage    -> controller01 (placement role, not Cinder enablement)
+#
+# อย่ากำหนด Tenant Network, IP Allocation Pool หรือ Fixed IP ของ VM ในไฟล์นี้
+# สิ่งเหล่านั้นเป็น Neutron Resources ที่สร้างภายหลังการ Deploy
+#
+# ระบบนี้เป็น Non-HA จึงอาจมี Group ของ HA Services อยู่ใน Inventory แต่
+# HAProxy, Keepalived และ ProxySQL ถูก Disable ผ่าน globals.yml
+#
+# Runtime Inventory ที่ผ่านการใช้งานจริงอยู่ที่ ~/multinode บน controller01
+# ต้องเปรียบเทียบก่อนนำตัวอย่างไปใช้งาน โดยเฉพาะ SSH, Sudo, และ Local Connection
+# =============================================================================

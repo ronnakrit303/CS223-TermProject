@@ -1,0 +1,431 @@
+---
+# =============================================================================
+# CS223-TermProject | Kolla Ansible Global Configuration (Public Example)
+# =============================================================================
+#
+# Repository : https://github.com/ronnakrit303/CS223-TermProject
+# File       : config/globals.example.yml
+# Target     : OpenStack 2026.1 (Kolla Ansible stable/2026.1)
+# OS         : Ubuntu Server 24.04 LTS
+# Deployment : Multinode, Non-HA (1 Controller + 1 Compute)
+# Format     : YAML; ข้อความหลังเครื่องหมาย # เป็น Comment ไม่ส่งผลต่อ Kolla
+#
+# Upstream reference:
+# https://github.com/openstack/kolla-ansible/blob/stable/2026.1/etc/kolla/globals.yml
+#
+# เอกสารประกอบ:
+#   docs/02-architecture.md
+#   docs/03-environment-setup.md
+#   docs/04-kolla-deployment.md
+#   docs/05-deployment-verification.md
+#   docs/06-troubleshooting.md
+#   docs/07-handover.md
+#
+# ---------------------------------------------------------------------------
+# สถานะของไฟล์นี้
+# ---------------------------------------------------------------------------
+# - เป็น "ตัวอย่างที่มีค่าใช้งานได้" สำหรับ Lab เดิม ไม่ใช่สำเนาเต็มของ
+#   /etc/kolla/globals.yml และไม่ได้รวม Default Options ของ Kolla ทั้งหมด
+# - ค่าที่เปิดใช้งาน (uncommented) เป็นค่าหลักที่บันทึกจาก Deployment
+#   ที่ทดสอบสำเร็จแล้ว บางค่าที่เป็น Default แสดงเป็น Comment เพื่อใช้อธิบาย
+# - โปรเจกต์ได้ Deploy และทดสอบแล้ว: controller01 + compute01, Nova, Neutron,
+#   Keystone, Glance, Placement, Horizon, CirrOS Test VM และ SSH Tunnel
+# - เหมาะสำหรับประกอบรายงานและตั้งต้น Lab ที่ "มี Topology เทียบเท่ากัน"
+# - ห้ามนำไปเขียนทับ /etc/kolla/globals.yml ของระบบเดิมโดยไม่เปรียบเทียบ
+# - ห้ามคาดหวังว่าไฟล์นี้เพียงไฟล์เดียวจะติดตั้ง OpenStack ได้ครบ:
+#   ต้องมี Inventory, Passwords, Neutron Overrides, SSH, KVM, Docker และ
+#   Ansible/Kolla Ansible Environment ตาม docs/03 และ docs/04
+#
+# ข้อมูลพื้นฐานของ Lab (ไม่ใช่ YAML Variables)
+#   controller01         192.168.1.160/24  (ens3, API/Network/Deployment)
+#   compute01            192.168.1.7/24    (ens3, Compute/KVM)
+#   Management underlay  192.168.1.0/24   (MTU 1450)
+#   Tenant VXLAN network cs223-private-net
+#   Guest subnet         10.10.10.0/24   (Neutron; ไม่กำหนดในไฟล์นี้)
+#   Observed guest       10.10.10.117/24 (MTU 1400)
+#   External interface   dummy0          (Lab only; ไม่ได้เป็น internet uplink)
+#
+# SECURITY
+# - ไม่มี Password, SSH Private Key, API Token หรือ Console Token ในไฟล์นี้
+# - ห้าม Commit /etc/kolla/passwords.yml และ /etc/kolla/admin-openrc.sh
+# - ห้ามนำตัวแปรรหัสผ่านจาก /etc/kolla/clouds.yaml ขึ้น Public Repository
+# - IP ที่ระบุเป็นข้อมูล Topology ภายในของ Lab; หากใช้กับหน่วยงานอื่นให้
+#   ตรวจนโยบายการเผยแพร่ข้อมูล Infrastructure ก่อนเสมอ
+#
+# =============================================================================
+# 01. Ansible Compatibility
+# =============================================================================
+#
+# Upstream stable/2026.1 มีตัวแปร workaround นี้ใน globals.yml ตัวอย่าง
+# เป็นค่าที่ใช้กับ Environment ในการ Deploy ครั้งนี้
+# ไม่ควรมองว่าเป็นการเปิดบริการของ OpenStack
+
+workaround_ansible_issue_8743: true
+
+
+# =============================================================================
+# 02. Kolla Container Base & Release
+# =============================================================================
+#
+# Host ทั้งสองเครื่องใช้ Ubuntu 24.04 LTS
+# Kolla ใช้ Ubuntu-based images เพื่อให้ตรงกับ Environment ของ Lab
+#
+# ยืนยัน OpenStack Release จาก Kolla Ansible ที่ติดตั้งจริง
+# ไม่บังคับ openstack_release ซ้ำเมื่อใช้ Kolla Ansible branch/constraints
+# ที่ตรงกับ 2026.1 อยู่แล้ว เพื่อเลี่ยง image tag ไม่ตรงกับ installed version
+#
+# สำหรับการติดตั้งใหม่:
+#  - เลือก Kolla Ansible เวอร์ชันที่รองรับ OpenStack 2026.1
+#  - ตรวจค่า release และ image availability ตามเอกสาร upstream
+
+kolla_base_distro: "ubuntu"
+
+# ค่า Default/Option สำหรับอ้างอิง (ไม่จำเป็นต้องเปิดใช้ใน Lab นี้):
+# openstack_release: "2026.1"
+# kolla_container_engine: "docker"
+# config_strategy: "COPY_ALWAYS"
+# node_custom_config: "/etc/kolla/config"
+#
+# ข้อควรระวัง: อย่าเปลี่ยน openstack_release หรือ image tag บนระบบที่กำลัง
+# ทำงานโดยไม่มีแผน Upgrade; การเปลี่ยนค่าไม่เท่ากับการ Upgrade OpenStack
+
+
+# =============================================================================
+# 03. Management, API & Tunnel Networking
+# =============================================================================
+#
+# ใช้ ens3 บนทั้ง Controller และ Compute
+# ต้องมี IPv4 Address และสื่อสารกันได้บน Underlay Network
+#
+# network_interface:
+#   Interface หลักที่ Kolla ใช้เป็นพื้นฐานในการเลือก Management Network
+#
+# api_interface:
+#   Interface ที่บริการ API ใช้สื่อสารภายใน Deployment
+#
+# tunnel_interface:
+#   Underlay Interface สำหรับ Neutron Tenant Tunnel เช่น VXLAN
+#
+# ทุก Interface ด้านล่างอ้างถึง ens3 ซึ่งมี MTU 1450 ใน Lab เดิม
+# ห้ามเปลี่ยน ens3 เป็น External Bridge Port; อาจทำให้ SSH/Network ขาด
+
+network_interface: "ens3"
+api_interface: "ens3"
+tunnel_interface: "ens3"
+
+# ใช้ค่า Default IPv4 ของ Kolla
+# network_address_family: "ipv4"
+# api_address_family: "ipv4"
+# tunnel_address_family: "ipv4"
+#
+# หาก Host ใช้ชื่อ Interface ต่างกัน ควรกำหนด Host Vars ใน Inventory
+# เช่น compute01 api_interface=ens3 tunnel_interface=ens3
+# ไม่ควรแก้ส่วน Global แล้วทำให้ Host อื่นชี้ Interface ที่ไม่มีอยู่
+
+
+# =============================================================================
+# 04. API Endpoint / VIP for Single-Controller Non-HA Lab
+# =============================================================================
+#
+# ในระบบ High Availability ตามปกติ VIP มักเป็น IP ว่างที่ Keepalived ย้าย
+# ระหว่างหลาย Controller แต่ระบบนี้มี Controller เพียงเครื่องเดียว
+#
+# Deployment นี้ปิด HAProxy / Keepalived และกำหนด internal VIP variable
+# เป็น IP จริงของ controller01: 192.168.1.160
+#
+# ผลที่ตรวจสอบแล้ว:
+#   curl -I http://192.168.1.160/
+#   => HTTP 302 Redirect ไปหน้า Horizon Login
+#
+# สำคัญ:
+#   192.168.1.160 ไม่ใช่ Floating VIP ที่ย้ายเครื่องได้
+#   การล่มของ controller01 ส่งผลต่อ Control Plane ทั้งหมด
+#   ห้ามใช้ชุดนี้เป็น HA Reference โดยตรง
+
+kolla_internal_vip_address: "192.168.1.160"
+
+# ปิด API Load Balancer และ Keepalived ตาม Non-HA Topology ที่ทดสอบแล้ว
+enable_haproxy: false
+enable_keepalived: false
+
+# ปิด ProxySQL เพื่อให้ Database Endpoint ของ Lab นี้ไม่เกิดการแย่ง Port 3306
+enable_proxysql: false
+
+# ตัวแปรนี้มีอยู่ใน Group/Role Selection ของ Deployment ที่ใช้งานจริง
+# แม้จะไม่แสดงใน upstream sample globals.yml ทุกเวอร์ชัน
+# จึงคงไว้เพื่อสะท้อน Inventory/Playbook Selection ที่ Deploy สำเร็จแล้ว
+enable_loadbalancer: false
+
+# ค่าตัวอย่างที่ไม่จำเป็นต้องเปิดใน Lab ปัจจุบัน:
+# kolla_internal_fqdn: "{{ kolla_internal_vip_address }}"
+# kolla_external_vip_address: "{{ kolla_internal_vip_address }}"
+# kolla_external_fqdn: "{{ kolla_external_vip_address }}"
+#
+# หมายเหตุ: ถ้าย้ายไปใช้ HTTPS/TLS, HAProxy หรือ VIP แยกต่างหาก
+# ต้องออกแบบ Endpoint, Certificate, DNS, Network และ Security ใหม่ให้สอดคล้อง
+
+
+# =============================================================================
+# 05. Neutron Backend / External Interface
+# =============================================================================
+#
+# Backend ที่ใช้จริงคือ Open vSwitch (OVS), ไม่ใช่ OVN
+# Controller มี Neutron Server, DHCP, L3, Metadata และ OVS Agent
+# Compute มี Neutron OVS Agent สำหรับเชื่อม Guest VM เข้ากับเครือข่าย
+#
+# `dummy0` เป็น Dummy Interface ที่ใช้กับการทดลอง br-ex ใน Lab
+# ไม่ใช่ Physical NIC, ไม่เชื่อมต่อ Provider Network จริง และไม่ใช่
+# Internet Uplink ดังนั้นการระบุ dummy0 ไม่ได้ทำให้ Floating IP ใช้ได้
+#
+# ไฟล์นี้กำหนดเพียงชื่อ Interface; ต้องสร้าง/รักษา dummy0 ให้มีอยู่บน Node
+# ที่ทำหน้าที่ Network ก่อน Deploy ตามขั้นตอนใน docs/03-environment-setup.md
+#
+# ห้ามแทนค่า dummy0 เป็น ens3 แบบตรง ๆ เพราะ ens3 คือ Management NIC
+# การส่ง NIC ที่ใช้งาน SSH ไปเป็น External Bridge อาจทำให้ติดต่อ VM ไม่ได้
+
+neutron_plugin_agent: "openvswitch"
+neutron_external_interface: "dummy0"
+
+# Options ที่ตรวจสอบกับ Upstream และใช้ค่า Default ตาม Lab:
+# enable_neutron_provider_networks: false
+# neutron_ipam_driver: "internal"
+#
+# Network ที่สร้างภายหลังผ่าน Neutron API ไม่ได้กำหนดด้วย globals.yml:
+#   Network: cs223-private-net (type VXLAN, MTU 1400)
+#   Subnet : cs223-private-subnet (10.10.10.0/24)
+#   Gateway: 10.10.10.1 (ประกาศค่าใน Subnet; ยังไม่ได้สร้าง Router)
+#   DHCP   : enabled
+#
+# ข้อจำกัด:
+#   - ยังไม่ทดสอบ External/Provider Network ออกอินเทอร์เน็ตจริง
+#   - ยังไม่ทดสอบ Floating IP ของ Guest VM
+#   - ยังไม่ทดสอบการเชื่อมระหว่าง Guest VM หลายเครื่อง
+
+
+# =============================================================================
+# 06. Neutron MTU Alignment (อยู่ใน Configuration Overrides)
+# =============================================================================
+#
+# Underlay ens3: MTU 1450
+# VXLAN เพิ่ม Encapsulation Overhead จึงมี Guest/Network MTU 1400
+# ผลยืนยันจาก:
+#   openstack network show cs223-private-net
+#   ip -4 addr show eth0    (ภายใน CirrOS; eth0 MTU 1400)
+#
+# สำคัญ: ค่าทั้งสองด้านล่างเป็น "Neutron INI Options" ไม่ใช่
+# globals.yml YAML Variables อย่านำไปใส่เป็น Key ในไฟล์นี้
+#
+# /etc/kolla/config/neutron/neutron.conf
+#   [DEFAULT]
+#   global_physnet_mtu = 1450
+#
+# /etc/kolla/config/neutron/ml2_conf.ini
+#   [ml2]
+#   path_mtu = 1450
+#
+# ตัวอย่างสำหรับ Repository อยู่ที่:
+#   config/neutron/neutron.conf.example
+#   config/neutron/ml2_conf.ini.example
+#
+# หาก Underlay MTU ต่างจาก Lab นี้ ต้องคำนวณใหม่ตาม Encapsulation ที่ใช้
+# การเห็น MTU 1400 ไม่ใช่การยืนยัน End-to-End Path MTU ทุกปลายทาง
+
+
+# =============================================================================
+# 07. OpenStack Core Services
+# =============================================================================
+#
+# Core Services ที่ Deployment นี้ติดตั้งและทดสอบ:
+#   Keystone  - Identity, Token
+#   Nova      - Compute API/Scheduler/Conductor/Compute
+#   Neutron   - Network, DHCP, Metadata, OVS
+#   Glance    - VM Images
+#   Placement - Resource Allocation for Nova
+#   Horizon   - Web Dashboard
+#
+# Dependencies ที่จำเป็น ได้แก่ MariaDB, RabbitMQ และ Memcached
+#
+# Kolla stable/2026.1 ใช้ enable_openstack_core เป็น Flag หลัก
+# และ Core Services หลายตัวอ้างค่า Default จาก Flag นี้
+#
+# ตั้งค่าเป็น true เพื่อให้เจตนาของ Example ชัดเจน
+enable_openstack_core: true
+
+# ค่า Default ที่ derive จาก enable_openstack_core / enable_nova:
+# enable_keystone: "{{ enable_openstack_core | bool }}"
+# enable_nova: "{{ enable_openstack_core | bool }}"
+# enable_neutron: "{{ enable_openstack_core | bool }}"
+# enable_glance: "{{ enable_openstack_core | bool }}"
+# enable_horizon: "{{ enable_openstack_core | bool }}"
+# enable_placement: "{{ enable_nova | bool }}"
+#
+# MariaDB / RabbitMQ / Memcached ทำงานตาม Service Dependencies
+# ไม่ต้องใส่ Password หรือ Credential ของบริการลงใน globals.yml ตัวอย่างนี้
+#
+# ข้อควรระวัง:
+# การ Enable Service ไม่ใช่หลักฐานว่าทำงานถูกต้อง
+# สถานะที่ตรวจจริงอยู่ใน docs/05-deployment-verification.md
+
+
+# =============================================================================
+# 08. Services Outside This Lab's Scope
+# =============================================================================
+#
+# โปรเจกต์คนที่ 2 เน้น Compute, Networking, Identity, Images และ Dashboard
+# จึงปิดบริการที่ไม่ได้อยู่ใน Scope ดังนี้
+#
+# enable_cinder: false
+#   ไม่ติดตั้ง Cinder Block Storage / ไม่สร้าง Cinder Volumes
+#
+# enable_heat: false
+#   ไม่ติดตั้ง Heat Orchestration / ไม่ใช้ Heat Stacks
+#   โดยเฉพาะ Heat ที่ Kolla อาจเปิดตาม Core Flag ถ้าไม่ปิดชัดเจน
+
+enable_cinder: false
+enable_heat: false
+
+# ตัวเลือกเพิ่มเติมที่ไม่ได้เปิดใช้และไม่ได้ทดสอบใน Lab นี้
+# ไม่จำเป็นต้องเปิดทุกบรรทัด เพราะค่า Default อาจเปลี่ยนตาม Release
+#
+# enable_octavia: false       # Load Balancer as a Service (LBaaS)
+# enable_magnum: false        # Container Infrastructure
+# enable_ironic: false        # Bare-metal Provisioning
+# enable_manila: false        # Shared File Systems
+# enable_prometheus: false    # Monitoring Stack
+# enable_grafana: false       # Visualization
+# enable_skyline: false       # Alternative Dashboard
+#
+# `enable_loadbalancer: false` ในส่วน 04 เป็นตัวเลือกเกี่ยวกับ Kolla
+# Load-Balancer Role Selection ไม่ใช่การแทนที่ตัวแปร enable_octavia
+
+
+# =============================================================================
+# 09. Nova Virtualization Backend
+# =============================================================================
+#
+# Compute Node คือ compute01
+# ตรวจพบ /dev/kvm และ Nova Hypervisor State = UP
+# สร้าง cs223-test-vm (CirrOS) บน compute01 ได้สำเร็จ
+#
+# ใช้ KVM (Hardware-assisted Virtualization) ผ่าน QEMU/Libvirt
+# ในสภาพแวดล้อม Nested Virtualization ที่โครงสร้างชั้นนอกอนุญาต
+#
+# ถ้าเครื่องใหม่ไม่มี /dev/kvm ต้องแก้ Environment ให้รองรับ KVM ก่อน
+# อย่าคัดลอกค่านี้แล้วคาดว่า KVM จะใช้งานได้ทุกเครื่อง
+
+nova_compute_virt_type: "kvm"
+
+# ทางเลือกของ Kolla คือ "qemu" สำหรับสภาพแวดล้อมที่ไม่มี KVM acceleration
+# ไม่ใช่ค่าที่ใช้จริงของ Lab นี้ จึงไม่ตั้งเป็น Active Variable
+# nova_compute_virt_type: "qemu"
+
+
+# =============================================================================
+# 10. Storage and Persistent Data
+# =============================================================================
+#
+# โปรเจกต์นี้ไม่ได้เปิด Cinder แต่ยังมี Storage ที่ต้องใช้:
+#   - Docker Volumes / Container Data
+#   - MariaDB Database Data
+#   - Glance Image Backend
+#   - Nova Instance Disk บน Compute Node
+#
+# Network Storage, Ceph, Cinder LVM หรือ HA Storage ไม่ได้ถูกตั้งค่าโดย
+# globals.example.yml ฉบับนี้ และไม่ควรอ้างว่ารองรับโดยไม่มีหลักฐาน
+#
+# โครงสร้าง Filesystem และ Backend จริงให้ตรวจจาก Configuration/Environment
+# ก่อนเขียน Detailed Storage Diagram ในเอกสารฉบับอื่น
+
+
+# =============================================================================
+# 11. Deployment Parameters & Supporting Files
+# =============================================================================
+#
+# Inventory ที่ใช้งานจริง:       ~/multinode
+# Inventory ตัวอย่างใน Repo:    config/multinode.example
+# Globals จริง:                 /etc/kolla/globals.yml
+# Passwords จริง:               /etc/kolla/passwords.yml
+# Neutron Overrides:            /etc/kolla/config/neutron/
+#
+# การ Deploy ครั้งนี้ใช้ Kolla Ansible ใน Python Virtual Environment:
+#   ~/kolla-venv
+#
+# หลัง Deploy สร้าง OpenStack Client Configuration:
+#   /etc/kolla/admin-openrc.sh
+#   /etc/kolla/clouds.yaml
+#
+# เนื่องจากข้อมูลดังกล่าวอาจมี Credentials ให้เก็บไว้บน Controller เท่านั้น
+# และใช้ช่องทางแยกต่างหากสำหรับการส่งมอบคนที่ 3
+#
+# Command Flow ที่ใช้ในการติดตั้ง (Comment ไว้เพื่ออ้างอิง):
+#
+#   source ~/kolla-venv/bin/activate
+#   kolla-ansible bootstrap-servers -i ~/multinode
+#   kolla-ansible prechecks -i ~/multinode
+#   kolla-ansible deploy -i ~/multinode
+#   kolla-ansible post-deploy -i ~/multinode
+#
+# **คำสั่งข้างต้นเป็นขั้นตอน Install/Deploy ไม่ใช่คำสั่ง Health Check**
+# บนระบบที่ Deploy สำเร็จแล้วให้ตรวจแบบ Read-only ตาม docs/07-handover.md
+
+
+# =============================================================================
+# 12. Verification Results Recorded for This Lab
+# =============================================================================
+#
+# Deployment:
+#   - Deploy Retry EXIT STATUS 0
+#   - PLAY RECAP failed=0
+#   - Post-deploy completed
+#
+# OpenStack:
+#   - Keystone Token Issue: Success
+#   - Nova Scheduler / Conductor / Compute: UP
+#   - Compute Hypervisor: compute01 UP
+#   - Neutron Agents: 5 Alive
+#   - Glance Image: cirros-0.6.3 ACTIVE
+#   - VM: cs223-test-vm ACTIVE, scheduled on compute01
+#   - Neutron DHCP: Guest IP 10.10.10.117/24
+#   - noVNC: Guest Console reachable and CirrOS Login successful
+#   - Horizon: Browser login as admin successful
+#
+# สิ่งที่ยังไม่ได้ยืนยัน:
+#   - Public Provider Network / Guest Floating IP
+#   - Guest-to-Internet Connectivity
+#   - VM-to-VM Connectivity
+#   - Live Migration, Cinder, Heat, High Availability
+#
+# Troubleshooting ที่เกิดจริง:
+#   - MariaDB/ProxySQL Port 3306 conflict ใน Deploy รอบแรก
+#   - หลังตั้ง enable_proxysql=false ยังมี systemd Units จาก State เดิม
+#     จึงต้องหยุด Services ที่ค้างและตรวจ Runtime State ก่อน Retry
+#   - การเปลี่ยน YAML เพียงอย่างเดียวไม่รับประกันว่าคอนเทนเนอร์เก่าจะหยุด
+#   - รายละเอียดอยู่ใน docs/06-troubleshooting.md
+
+
+# =============================================================================
+# 13. Safe Validation Checklist (Comments Only)
+# =============================================================================
+#
+# บนเครื่องที่ Clone Repository (สำหรับตรวจ Example ไม่แก้ระบบจริง):
+#
+#   python3 -c "import yaml; yaml.safe_load(open('config/globals.example.yml', encoding='utf-8')); print('YAML OK')"
+#
+# บน controller01 ของระบบจริง (คำสั่งตรวจสอบ ไม่แก้ Configuration):
+#
+#   ip -br addr show ens3
+#   ip -br link show dummy0
+#   ip link show ens3
+#   sudo test -f /etc/kolla/globals.yml && echo 'globals.yml exists'
+#   sudo test -f /etc/kolla/passwords.yml && echo 'passwords.yml exists'
+#   sudo test -f /etc/kolla/config/neutron/neutron.conf && echo 'neutron.conf exists'
+#   sudo test -f /etc/kolla/config/neutron/ml2_conf.ini && echo 'ml2_conf.ini exists'
+#
+# แนะนำให้เปรียบเทียบไฟล์ตัวอย่างกับไฟล์ที่ใช้ Deploy สำเร็จจริง โดยต้อง
+# ระวังไม่ให้เครื่องมือ Diff ส่งรหัสผ่านหรือรายละเอียดที่อ่อนไหวไปยัง Logs
+#
+# ไม่มีเหตุผลต้องรัน Deploy ใหม่เพียงเพื่อใช้ไฟล์ Example นี้ในการทำรายงาน
+#
+# =============================================================================
+# END OF FILE
+# =============================================================================

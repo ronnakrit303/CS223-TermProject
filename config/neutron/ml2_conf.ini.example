@@ -1,0 +1,474 @@
+# =============================================================================
+# CS223-TermProject | Neutron ML2 Plugin Configuration Override (Example)
+# =============================================================================
+#
+# Repository : https://github.com/ronnakrit303/CS223-TermProject
+# File       : config/neutron/ml2_conf.ini.example
+# Component  : Neutron Modular Layer 2 (ML2) Plug-in
+# OpenStack  : 2026.1 (Kolla Ansible stable/2026.1)
+# Format     : INI / oslo.config (NOT YAML)
+# Environment: Ubuntu 24.04 LTS; 1 Controller + 1 Compute; non-HA
+#
+# IMPORTANT — READ BEFORE USING
+# -----------------------------
+# 1. ไฟล์นี้เป็น MINIMAL CONFIGURATION OVERRIDE ไม่ใช่ ml2_conf.ini ฉบับเต็ม
+#    Kolla Ansible จะสร้างค่าของ ML2 ส่วนใหญ่จาก Templates ให้อัตโนมัติ
+# 2. มีเพียง path_mtu = 1450 เท่านั้นที่เปิดใช้งานจริงในไฟล์นี้
+#    ส่วนที่ขึ้นต้นด้วย # เป็นคำอธิบาย ไม่ถูกโหลดเป็น Configuration
+# 3. ค่านี้อ้างอิงจาก Lab ที่ตรวจสอบแล้วว่า Underlay MTU = 1450
+#    และ VXLAN Tenant Network/Guest MTU = 1400
+# 4. ห้ามนำตัวอย่างนี้ไปเขียนทับไฟล์ที่ Deploy สำเร็จแล้วโดยตรง
+#    โดยไม่ได้เปรียบเทียบกับ Configuration ที่ทำงานอยู่
+# 5. ไม่รวม Password, Token, Database URL, SSH Private Key หรือ Secrets
+#
+# Documentation ใน Repository:
+#   docs/02-architecture.md
+#   docs/03-environment-setup.md
+#   docs/04-kolla-deployment.md
+#   docs/05-deployment-verification.md
+#   docs/06-troubleshooting.md
+#   docs/07-handover.md
+#
+# Official upstream references:
+#   https://docs.openstack.org/neutron/2026.1/configuration/ml2-conf.html
+#   https://docs.openstack.org/neutron/2026.1/admin/config-mtu.html
+#   https://docs.openstack.org/neutron/2026.1/admin/config-ml2.html
+#   https://github.com/openstack/kolla-ansible/blob/stable/2026.1/ansible/roles/neutron/templates/ml2_conf.ini.j2
+#   https://github.com/openstack/kolla-ansible/blob/stable/2026.1/ansible/roles/neutron/tasks/config.yml
+#
+# =============================================================================
+# 01. ทำความรู้จัก ML2 Plug-in
+# =============================================================================
+#
+# Neutron ML2 (Modular Layer 2) ใช้ประกอบการจัดการ Layer 2 Virtual Networks
+# โดยแยกองค์ประกอบสำคัญออกเป็น:
+#
+# - Type Drivers:
+#   ระบุชนิดของเครือข่ายที่สามารถสร้าง เช่น local, flat, vlan, vxlan
+# - Mechanism Drivers:
+#   เชื่อมการทำงานของ Neutron กับ Backend ที่ใช้จัดการ Dataplane
+#   ใน Lab นี้ใช้ Open vSwitch (OVS) ไม่ได้ใช้ OVN
+# - Extension Drivers:
+#   ความสามารถเพิ่มเติมที่ ML2 รองรับตามการกำหนดของ Deployment
+# - Type-specific Settings:
+#   เช่น [ml2_type_vxlan] และช่วง VNI (VXLAN Network Identifier)
+#
+# ใน Deployment นี้ Kolla Ansible เป็นผู้สร้าง ML2 Options เหล่านั้น
+# จากตัวแปร/Template ของ Release ที่ติดตั้ง จึงไม่ควรคัดลอกค่าทั้งหมดมา
+# Override ซ้ำโดยไม่มีเหตุผล
+#
+# การเปลี่ยน type_drivers หรือช่วง VNI หลังระบบใช้งานแล้วอาจกระทบ
+# การจัดสรร Network และความสอดคล้องกับข้อมูลใน Neutron Database
+#
+# =============================================================================
+# 02. ACTIVE OVERRIDE — ML2 Underlay Path MTU
+# =============================================================================
+#
+# path_mtu = ค่า MTU ของเส้นทาง Physical/Underlay ที่รองรับ Overlay Tunnel
+#   หน่วย: byte
+#   ชนิด: integer
+#   ค่าตาม Neutron Reference: ค่า Default เป็น 0
+#     (เมื่อไม่มีการ Override จะอ้างอิง global_physnet_mtu ตาม Logic ML2)
+#
+# สำหรับ Lab นี้:
+#   controller01 ens3 = MTU 1450
+#   compute01    ens3 = MTU 1450
+#
+# ค่า 1450 บอกให้ ML2 ใช้ Physical Path MTU 1450 ในการคำนวณ Overlay MTU
+# โดยไม่ใช่ค่า MTU ที่ต้องนำไปกำหนดให้ Guest VM โดยตรง
+#
+# ค่า Effective ของ Tenant VXLAN Network ที่ทดสอบจริง = 1400
+# ซึ่งตรงกับการหัก IPv4 VXLAN Encapsulation Overhead โดยทั่วไป 50 bytes
+#
+#   1450 (Underlay MTU) - 50 (VXLAN/IPv4 Overhead) = 1400 (Overlay MTU)
+#
+# สูตรนี้ใช้กับ Topology/Encapsulation ที่ตรวจสอบใน Lab นี้
+# ไม่ใช่กฎตายตัวสำหรับ Tunnel ทุกประเภทหรือทุก Environment
+
+[ml2]
+path_mtu = 1450
+
+
+# =============================================================================
+# 03. ความสัมพันธ์กับ neutron.conf.example
+# =============================================================================
+#
+# Neutron MTU Configuration ที่ใช้งานคู่กันประกอบด้วย:
+#
+#  A. config/neutron/neutron.conf.example
+#
+#     [DEFAULT]
+#     global_physnet_mtu = 1450
+#
+#     global_physnet_mtu เป็นค่า Physical-Network MTU พื้นฐานที่ Neutron ใช้
+#     รวมถึงเป็นฐานสำหรับ Flat/VLAN Network ที่ไม่มี Override เฉพาะทาง
+#
+#  B. config/neutron/ml2_conf.ini.example     <-- ไฟล์นี้
+#
+#     [ml2]
+#     path_mtu = 1450
+#
+#     path_mtu เป็นค่า MTU ของ Underlay Path สำหรับ Overlay/Tunnel Networks
+#
+# ทั้งสองค่าเท่ากันใน Lab นี้เพราะใช้ Underlay ชุดเดียวที่มี MTU 1450
+# แต่ในระบบจริงอาจมี Physical Network สำหรับ Provider Traffic และ
+# Overlay Tunnel Traffic แยกกัน จึงอาจกำหนดให้มีค่าไม่เท่ากันได้
+#
+# อย่านำ global_physnet_mtu มาใส่ใน [ml2] และอย่านำ path_mtu ไปใส่
+# ใน [DEFAULT] ของ neutron.conf; แต่ละ Option อยู่คนละ Configuration Group
+#
+# =============================================================================
+# 04. Network Topology ของ Lab
+# =============================================================================
+#
+#             Physical/Underlay IPv4 Network 192.168.1.0/24
+#                        MTU 1450, interface ens3
+#
+#           +------------------+   +------------------+
+#           |   controller01   |   |    compute01     |
+#           | 192.168.1.160    |   | 192.168.1.7      |
+#           | ens3 MTU 1450    |   | ens3 MTU 1450    |
+#           | Neutron Services |   | Nova Compute     |
+#           | DHCP / L3 / OVS  |   | Libvirt/KVM/OVS   |
+#           +--------+---------+   +---------+--------+
+#                    |                       |
+#                    +---- VXLAN/IPv4 --------+
+#                                             |
+#                                        Guest VM
+#                                        cs223-test-vm
+#                                        eth0 MTU 1400
+#                                        10.10.10.117/24
+#
+# Neutron Objects ที่สร้างและตรวจสอบสำเร็จ:
+#   Tenant Network : cs223-private-net
+#   Network Type   : vxlan
+#   Segmentation ID: 985 (ค่า VNI ที่พบใน Deployment เดิม)
+#   Tenant MTU     : 1400
+#   Subnet         : cs223-private-subnet
+#   IPv4 CIDR      : 10.10.10.0/24
+#   DHCP           : enabled
+#   DHCP Server IP : 10.10.10.100 (ที่พบจาก DHCP Lease)
+#   Guest VM       : cs223-test-vm
+#   Guest IP       : 10.10.10.117/24 (ค่าที่บันทึกขณะทดสอบ)
+#
+# หมายเหตุ:
+# - VNI 985 เป็น VXLAN Identifier ไม่ใช่ UDP Port, IP Address หรือ VLAN ID
+# - IP 10.10.10.117 อาจเปลี่ยนได้ หากมีการแก้ไข/สร้าง Port ใหม่
+# - Subnet Gateway Field = 10.10.10.1 แต่ยังไม่ได้สร้าง Tenant Router
+#   ดังนั้นยังไม่ยืนยัน Internet Access หรือ External Connectivity
+# - การตั้ง path_mtu ไม่ได้สร้าง VXLAN Tunnel หรือ DHCP Agent ขึ้นมาเอง
+#
+# =============================================================================
+# 05. ML2 Type Drivers — อธิบาย แต่ไม่ Override
+# =============================================================================
+#
+# Upstream Kolla Ansible stable/2026.1 มี Template ส่วน [ml2] ประมาณว่า:
+#   type_drivers = <ค่าที่ Kolla สร้างจาก neutron_type_drivers>
+#   tenant_network_types = <ค่าที่ Kolla สร้างจาก neutron_tenant_network_types>
+#
+# type_drivers:
+#   รายการ Network Types ที่ ML2 สามารถให้บริการได้
+#
+# tenant_network_types:
+#   ประเภท Network ที่ใช้จัดสรร Project/Tenant Network โดยอัตโนมัติ
+#   (ชื่อ Option ใน Kolla Template ยังใช้ tenant_network_types)
+#
+# OpenStack Neutron 2026.1 Reference ใช้ project_network_types
+# และระบุชื่อ tenant_network_types เป็นชื่อเก่าที่ Deprecated
+# ดังนั้นอย่าเพิ่ม/สลับสองค่านี้เองใน Override โดยไม่ตรวจ Template
+# และ Configuration ที่ Generated จริงของ Release นี้
+#
+# ประเด็นที่ยืนยันจาก Lab:
+#   - มี VXLAN Network ถูกสร้างสำเร็จ
+#   - Network เป็น ACTIVE และมี Segmentation ID 985
+#
+# ตัวอย่างนี้จึงตั้งใจ **ไม่** ใส่ type_drivers หรือ tenant_network_types
+# เป็น Active Settings เพื่อไม่เปลี่ยนการจัดสรร Network เดิม
+#
+# =============================================================================
+# 06. ML2 Mechanism Drivers — Open vSwitch
+# =============================================================================
+#
+# Kolla Ansible Global Configuration ของ Lab:
+#   neutron_plugin_agent: "openvswitch"
+#
+# การใช้ OVS หมายความว่า Neutron ใช้ OVS-related ML2 Mechanism Driver
+# และ Open vSwitch Agents สำหรับจัดการการเชื่อมต่อ Network Ports
+#
+# Components ที่ตรวจพบว่าทำงานในการทดสอบ:
+#   controller01: Neutron OVS Agent
+#   compute01   : Neutron OVS Agent
+#   controller01: DHCP Agent, L3 Agent และ Metadata Agent
+#
+# Kolla สร้าง mechanism_drivers จาก neutron_mechanism_drivers ใน Template
+# โดยไม่ต้องกำหนด mechanism_drivers ซ้ำในไฟล์ Override ฉบับนี้
+#
+# ควรแยกคำ 2 คำนี้ออกจากกัน:
+#   - ML2 Mechanism Driver = Plugin Integration ที่ Neutron Server ใช้
+#   - OVS Agent = Process/Container ที่จัดการ OVS บน Host แต่ละเครื่อง
+#
+# อย่าเปลี่ยน OVS เป็น OVN ด้วยการแก้ path_mtu หรือ mechanism_drivers
+# เพียงอย่างเดียว เพราะเป็นการเปลี่ยน Architecture ที่กระทบหลายบริการ
+#
+# =============================================================================
+# 07. VXLAN VNI Ranges (Reference Only)
+# =============================================================================
+#
+# Upstream Kolla stable/2026.1 ML2 Template กำหนด:
+#
+#   [ml2_type_vxlan]
+#   vni_ranges = 1:1000
+#
+# Lab นี้ได้รับ VNI 985 ซึ่งอยู่ใน Range ดังกล่าว
+# การเปลี่ยนช่วง VNI เมื่อมี Networks ใช้งานอยู่แล้วมีความเสี่ยงต่อ
+# Network Allocation; ไม่ควร Override โดยไม่มีแผนและข้อมูลประกอบ
+#
+# ดังนั้นจึง **ไม่เพิ่ม [ml2_type_vxlan] Section ที่ใช้งานจริง** ในไฟล์นี้
+#
+# Other Examples/Concepts:
+#   [ml2_type_vlan]  ใช้กับ VLAN Networks และ VLAN ID Ranges
+#   [ml2_type_flat]  ใช้กับ Flat Provider Networks
+#   [ml2_type_geneve] ใช้กับ Geneve Overlay (เช่นบาง OVN Deployments)
+#
+# โปรเจกต์นี้ไม่ต้องเปิด Network Types เพิ่มเพียงเพื่อทดสอบ MTU
+#
+# =============================================================================
+# 08. Physical Network MTUs (Reference Only)
+# =============================================================================
+#
+# Option ที่เกี่ยวข้องใน Neutron ML2 Reference:
+#
+#   [ml2]
+#   physical_network_mtus = physnet1:1500,physnet2:9000
+#
+# การกำหนด physical_network_mtus มีประโยชน์เมื่อ Physical Networks
+# (เช่น Flat/VLAN Provider Networks) หลายชุดมี MTU แตกต่างกัน
+#
+# Example นี้ไม่ได้เปิดใช้ เพราะ Lab ทดสอบเฉพาะ Private VXLAN Network
+# และใช้ dummy0 เป็น Interface สำหรับ External-Network Simulation
+# ไม่ใช่ Provider Uplink ที่มี Network จริงพร้อมใช้งาน
+#
+# ห้ามอ้างว่ารองรับ Provider Network หรือ Floating IP จากแค่การมี
+# [ml2] path_mtu = 1450
+#
+# =============================================================================
+# 09. Overlay IP Version และ Tunnel Overhead
+# =============================================================================
+#
+# Neutron ML2 มี Option overlay_ip_version ซึ่ง Default เป็น 4
+# หมายถึง IPv4 Tunnel Endpoints (Underlay Address ของ Nodes)
+#
+# Lab นี้ใช้งาน IPv4 บน ens3 และรับ MTU 1400 ที่ Guest
+# ซึ่งสอดคล้องกับ IPv4 VXLAN Overhead โดยทั่วไปประมาณ 50 bytes:
+#
+#   Outer Ethernet Header : 14 bytes
+#   Outer IPv4 Header     : 20 bytes
+#   Outer UDP Header      :  8 bytes
+#   VXLAN Header          :  8 bytes
+#   --------------------------------
+#   Total                 : 50 bytes
+#
+# Encapsulation ที่มี VLAN Tag, IPv6 หรือส่วนขยายอื่นอาจมี overhead ต่างกัน
+# การประเมิน MTU จึงต้องเริ่มจากการออกแบบ Underlay Network จริง
+#
+# Example นี้ไม่ Override overlay_ip_version เพราะใช้ค่า Default
+# และไม่มีการเปลี่ยน Tunnel Transport Architecture
+#
+# =============================================================================
+# 10. Configuration Override Layout in Kolla Ansible
+# =============================================================================
+#
+# ที่เก็บไฟล์ใน Repository:
+#   CS223-TermProject/config/neutron/ml2_conf.ini.example
+#
+# ตำแหน่ง Override ที่ Kolla Ansible ใช้เมื่อใช้ node_custom_config Default:
+#   /etc/kolla/config/neutron/ml2_conf.ini
+#
+# Template ของ Kolla ที่ใช้สร้างไฟล์จริง:
+#   ansible/roles/neutron/templates/ml2_conf.ini.j2
+#
+# Kolla จะนำค่า Override นี้ไป Merge ร่วมกับค่า Generated Configuration
+# ตาม Role/Service ที่ต้องใช้ ml2_conf.ini (เช่น Neutron Server)
+# Kolla ยังรองรับ Host-Specific Override ที่:
+#   /etc/kolla/config/neutron/<inventory_hostname>/ml2_conf.ini
+#
+# เอกสารและไฟล์ตัวอย่างไม่ใช่สัญญาณให้รัน `deploy` หรือ `reconfigure`
+# หลังติดตั้งสำเร็จแล้ว ถ้าต้องเปลี่ยนค่าในระบบจริงควรมี:
+#   - Change Plan และ Rollback Plan
+#   - Backup ของไฟล์ Configuration ที่มีอยู่
+#   - Maintenance Window และการยืนยันผู้รับผิดชอบระบบ
+#   - การตรวจผลหลังเปลี่ยน และการทดสอบการเชื่อมต่อของ Guest
+#
+# =============================================================================
+# 11. ตรวจสอบไฟล์ตัวอย่างแบบ Read-only
+# =============================================================================
+#
+# บนเครื่องที่มี Python 3:
+#
+#   python3 - <<'PY'
+#   import configparser
+#   p = configparser.ConfigParser(interpolation=None)
+#   assert p.read('config/neutron/ml2_conf.ini.example')
+#   assert p.getint('ml2', 'path_mtu') == 1450
+#   print('ML2 example INI OK: path_mtu=1450')
+#   PY
+#
+# เช็กเฉพาะค่า MTU ในไฟล์ Override จริงบน controller01:
+#
+#   sudo grep -nE '^[[:space:]]*path_mtu[[:space:]]*=' \
+#     /etc/kolla/config/neutron/ml2_conf.ini
+#
+# Expected:
+#   path_mtu = 1450
+#
+# ถ้า grep ไม่พบ อย่าเพิ่งสรุปว่า Neutron ทำงานผิด
+# เพราะบางระบบอาจใช้ node_custom_config Path อื่นหรือ Host Overrides
+# และควรตรวจ Generated Configuration ตามเอกสาร Operations
+#
+# =============================================================================
+# 12. ตรวจสอบ Physical MTU และ Neutron Network (Read-only)
+# =============================================================================
+#
+# บน controller01 และ compute01:
+#   ip -br addr show ens3
+#   ip -d link show ens3
+#
+# Expected:
+#   ens3 มี IP บน 192.168.1.0/24 และ MTU 1450
+#
+# บน controller01 ซึ่งติดตั้ง OpenStack CLI:
+#
+#   (
+#     source /etc/kolla/admin-openrc.sh
+#     ~/openstack-cli-venv/bin/openstack network show cs223-private-net \
+#       -f yaml -c name -c status -c mtu -c provider:network_type \
+#       -c provider:segmentation_id
+#   )
+#
+# Expected ตามผลทดสอบเดิม:
+#   name                     cs223-private-net
+#   status                   ACTIVE
+#   mtu                      1400
+#   provider:network_type    vxlan
+#   provider:segmentation_id 985
+#
+# ตรวจ Neutron Agents:
+#
+#   (
+#     source /etc/kolla/admin-openrc.sh
+#     ~/openstack-cli-venv/bin/openstack network agent list
+#   )
+#
+# Expected:
+#   5 Agents ทำงาน: Metadata, OVS, DHCP, L3 บน controller01
+#   และ OVS บน compute01; Alive = :-)
+#
+# ภายใน CirrOS Guest ผ่าน noVNC:
+#   ip -4 addr show eth0
+#
+# Expected:
+#   eth0: UP, LOWER_UP, mtu 1400
+#   inet 10.10.10.117/24
+#
+# สิ่งที่ตรวจสอบเหล่านี้มีหลักฐานจาก Deployment เดิมอยู่แล้ว
+# ไม่จำเป็นต้องรันซ้ำเพียงเพื่อแก้ไขหรือทำรายงาน GitHub
+#
+# =============================================================================
+# 13. Troubleshooting — อาการที่ควรแยกวิเคราะห์
+# =============================================================================
+#
+# A) Network แสดง MTU 1500 แทนที่จะเป็น 1400
+#    - ตรวจ [DEFAULT] global_physnet_mtu ของ neutron.conf
+#    - ตรวจ [ml2] path_mtu ของ ml2_conf.ini
+#    - ตรวจ MTU จริงของ ens3 ทั้ง Controller และ Compute
+#    - ตรวจว่า Neutron Server โหลด Generated Configuration ถูกต้องหรือไม่
+#    - หากเป็น Network ที่มีอยู่ก่อนเปลี่ยนค่า ตรวจความสามารถ
+#      net-mtu-writable และการอัปเดต MTU ของ Existing Network
+#
+# B) VM ได้ IP แต่ติดต่ออีก VM ไม่ได้
+#    - อย่าคิดว่าเป็นปัญหา MTU อย่างเดียว
+#    - ตรวจ Neutron Agent Alive, Port Binding, Security Groups
+#    - ตรวจ VXLAN Tunnel Underlay Connectivity และ Open vSwitch
+#    - ถ้าต้องการทดสอบ VM-to-VM ต้องมีอย่างน้อยสอง VM และ Test Plan
+#    - Lab นี้ยังไม่มีหลักฐาน VM-to-VM Test; ห้ามบันทึกว่าผ่านแล้ว
+#
+# C) เปลี่ยน path_mtu แล้ว Guest ยังใช้ค่าเดิม
+#    - การเปลี่ยน Override ไม่ใช่การเปลี่ยนค่าใน Running Container ทันที
+#    - Network MTU ของ Existing Networks อาจต้องแก้แยกต่างหาก
+#    - Guest DHCP Lease/Client อาจต้องรับค่าที่ประกาศใหม่ตามขั้นตอน
+#    - ต้องมี Change Plan ก่อนปรับ MTU ในระบบที่มี VM ทำงานอยู่
+#
+# D) Horizon เปิดได้ แต่ VM ออกอินเทอร์เน็ตไม่ได้
+#    - Horizon เป็น Control Plane UI ไม่ได้พิสูจน์ Data Plane Egress
+#    - `dummy0` ไม่ใช่ External Provider Uplink จริง
+#    - ต้องออกแบบ External Network, Router, SNAT/Floating IP เพิ่มเติม
+#    - การเปลี่ยน path_mtu เพียงอย่างเดียวไม่แก้ปัญหานี้
+#
+# =============================================================================
+# 14. Security and Evidence Management
+# =============================================================================
+#
+# FILES ที่ไม่ควร Commit เข้า Public GitHub:
+#   /etc/kolla/passwords.yml
+#   /etc/kolla/admin-openrc.sh
+#   /etc/kolla/clouds.yaml (ถ้ามี Credentials)
+#   SSH Private Keys
+#   noVNC Console URLs พร้อม Token
+#   Logs/Images ที่เปิดเผย Secrets หรือ Internal Credentials
+#
+# แนวทางเก็บ Screenshot:
+#   evidence/02-services/04-neutron-agents.png
+#   evidence/03-vm-validation/01-instance-active.png
+#   evidence/03-vm-validation/03-cirros-network.png
+#
+# Screenshot จริงต้องนำมาเพิ่มภายหลังและปิดบัง Token/Password ก่อน Upload
+# อย่าคัดลอก Generated Config ทั้งไฟล์ลงใน GitHub โดยไม่ตรวจ Secrets
+#
+# =============================================================================
+# 15. Project Results and Known Limitations
+# =============================================================================
+#
+# สิ่งที่ตรวจสอบสำเร็จแล้ว:
+#   - Kolla Ansible Deploy EXIT STATUS 0; PLAY RECAP failed=0
+#   - Nova Compute บน compute01 UP
+#   - Neutron Agents Alive ครบ 5 ตัว
+#   - Private VXLAN Network cs223-private-net ACTIVE, MTU 1400
+#   - CirrOS cs223-test-vm ACTIVE, IP 10.10.10.117/24, eth0 MTU 1400
+#   - OpenStack Horizon Login สำเร็จ
+#
+# สิ่งที่ยังไม่มีหลักฐานยืนยัน:
+#   - External Provider Network / Guest Floating IP / Guest Internet Access
+#   - VM-to-VM Connectivity ผ่าน VXLAN ระหว่าง Compute Nodes
+#   - High Availability และ Failover
+#   - Live Migration, Cinder, Heat
+#
+# Minimal Override ของไฟล์นี้ช่วยอธิบาย MTU Configuration เท่านั้น
+# ไม่ได้เป็นหลักฐานว่า Feature ทั้งหมดของ Neutron ถูกติดตั้งแล้ว
+#
+# =============================================================================
+# 16. References and Next Steps
+# =============================================================================
+#
+# Neutron 2026.1 — ML2 Configuration:
+#   https://docs.openstack.org/neutron/2026.1/configuration/ml2-conf.html
+#
+# Neutron 2026.1 — MTU Considerations:
+#   https://docs.openstack.org/neutron/2026.1/admin/config-mtu.html
+#
+# Kolla Ansible 2026.1 — ML2 Template:
+#   https://github.com/openstack/kolla-ansible/blob/stable/2026.1/ansible/roles/neutron/templates/ml2_conf.ini.j2
+#
+# Kolla Ansible 2026.1 — Neutron Configuration Tasks:
+#   https://github.com/openstack/kolla-ansible/blob/stable/2026.1/ansible/roles/neutron/tasks/config.yml
+#
+# Repository companion files:
+#   config/globals.example.yml
+#   config/neutron/neutron.conf.example
+#
+# สิ่งที่ควรทำต่อในโปรเจกต์:
+#   - ตรวจสอบว่า config/ ตัวอย่างทั้งชุดครบและไม่มี Credentials
+#   - เพิ่มหลักฐาน Screenshot จริงใน evidence/
+#   - สร้าง .gitignore เพื่อป้องกันการ Commit Secrets
+#   - สร้าง scripts/verify-deployment.sh สำหรับ Read-only Health Check
+#
+# END OF FILE

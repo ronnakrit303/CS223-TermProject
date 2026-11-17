@@ -1,0 +1,357 @@
+# =============================================================================
+# CS223 Term Project — Neutron Configuration Override (Example)
+# =============================================================================
+#
+# Repository : https://github.com/ronnakrit303/CS223-TermProject
+# File       : config/neutron/neutron.conf.example
+# Component  : OpenStack Neutron (Networking Service)
+# Release    : OpenStack 2026.1 — Kolla Ansible stable/2026.1
+# Format     : oslo.config INI (not YAML)
+# Lab        : 1 Controller (controller01) + 1 Compute (compute01), Non-HA
+#
+# IMPORTANT: This file is a MINIMAL OVERRIDE, not a complete neutron.conf.
+# Kolla Ansible generates the rest of the Neutron service configuration.
+#
+# Project documentation:
+#   docs/02-architecture.md
+#   docs/03-environment-setup.md
+#   docs/04-kolla-deployment.md
+#   docs/05-deployment-verification.md
+#   docs/06-troubleshooting.md
+#   docs/07-handover.md
+#
+# Official references:
+#   https://docs.openstack.org/neutron/2026.1/admin/config-mtu.html
+#   https://docs.openstack.org/neutron/2026.1/configuration/neutron.html
+#   https://docs.openstack.org/neutron/2026.1/configuration/ml2-conf.html
+#   https://docs.openstack.org/kolla-ansible/2026.1/admin/advanced-configuration.html
+#
+# =============================================================================
+# 01. Configuration Scope
+# =============================================================================
+#
+# จุดประสงค์ของไฟล์นี้คือกำหนด MTU ของ Physical/Underlay Network ให้ Neutron
+# นำไปใช้คำนวณ MTU สำหรับ Virtual Network ประเภทต่าง ๆ
+#
+# สิ่งที่มีผลจริง (Active Configuration) มีเพียง:
+#   [DEFAULT]
+#   global_physnet_mtu = 1450
+#
+# ค่าอื่นที่ยกตัวอย่างใน Comments เป็นคำอธิบายหรือ Reference เท่านั้น
+# ไม่ใช่ Settings ที่เปิดใช้งานอยู่
+#
+# ที่มาของค่า 1450:
+#   - Management/Tunnel Interface: ens3 (controller01 และ compute01)
+#   - Underlay MTU ที่ใช้ใน Lab: 1450 bytes
+#   - Neutron Network: cs223-private-net เป็น VXLAN (IPv4 Overlay)
+#   - VXLAN มี Encapsulation Overhead ประมาณ 50 bytes สำหรับ IPv4
+#   - ผลลัพธ์ที่ตรวจพบ: Tenant Network / CirrOS eth0 MTU = 1400 bytes
+#
+# สูตรแนวคิดสำหรับ Lab นี้:
+#
+#   VXLAN Tenant MTU ≈ Underlay Path MTU − Encapsulation Overhead
+#                   ≈ 1450 − 50
+#                   ≈ 1400 bytes
+#
+# หมายเหตุ:
+#   - ค่านี้อธิบาย VXLAN บน IPv4 Underlay; Overhead อาจแตกต่างตาม Protocol
+#     เช่น IPv6 Underlay เพิ่ม overhead และยังขึ้นกับ Network Encapsulation จริง
+#   - MTU 1400 ที่ตรวจพบ ไม่ได้พิสูจน์ว่าทุก Path ใน Infrastructure
+#     รองรับ Packet ขนาดดังกล่าวแบบ End-to-End
+#   - การตั้งค่าใน Neutron ไม่ได้เปลี่ยน MTU ของ NIC/Router/Switch เอง
+#
+# =============================================================================
+# 02. Active Override — Underlay MTU
+# =============================================================================
+#
+# [DEFAULT] เป็น Section มาตรฐานของ Neutron สำหรับ Global Options
+# global_physnet_mtu (integer) มีค่า Default 1500 หากไม่ Override
+#
+# Neutron ใช้ค่านี้เป็นฐานในการคำนวณ MTU:
+#   - Flat / VLAN Networks: โดยทั่วไปใช้ Physical MTU ตามค่าที่กำหนด
+#     (หากไม่มี Per-Physical-Network Override)
+#   - Overlay Networks เช่น VXLAN: ลบค่า Encapsulation Overhead
+#
+# ตั้งให้สอดคล้องกับ MTU ของ ens3 ที่ตรวจสอบได้ใน Lab เดิม
+
+[DEFAULT]
+global_physnet_mtu = 1450
+
+
+# =============================================================================
+# 03. Related ML2 Configuration (REFERENCE ONLY)
+# =============================================================================
+#
+# ตัวเลือก path_mtu ต้องอยู่ใน:
+#
+#   config/neutron/ml2_conf.ini.example
+#
+# โดย Section ของ ML2 จะมีลักษณะดังนี้:
+#
+#   [ml2]
+#   path_mtu = 1450
+#
+# **อย่าเพิ่ม [ml2] และ path_mtu ลงใน neutron.conf.example นี้**
+# Kolla Ansible และ Neutron แยกไฟล์หลักสำหรับแต่ละ Plugin
+#
+# ความหมายของ path_mtu:
+#   - MTU สูงสุดของ Underlay Path สำหรับ Tunnel/Overlay Traffic
+#   - เมื่อมี Tunnel เช่น VXLAN, Neutron ML2 ใช้เพื่อพิจารณาขนาด Packet
+#   - ใน Lab นี้ path_mtu และ global_physnet_mtu เท่ากันที่ 1450
+#   - หากองค์กรมี Underlay หลายประเภท อาจจำเป็นต้องออกแบบค่าต่างกัน
+#
+# ตัวเลือก physical_network_mtus เป็นอีก Setting ใน ML2 สำหรับกรณี
+# ที่ Physical Networks ต่าง ๆ มี MTU ไม่เท่ากัน ไม่จำเป็นใน Lab นี้
+#
+# `neutron_plugin_agent: "openvswitch"` และ
+# `neutron_external_interface: "dummy0"` เป็น Kolla globals.yml options
+# อยู่ใน config/globals.example.yml ไม่ใช่ neutron.conf
+#
+# =============================================================================
+# 04. Physical Underlay vs Tenant Overlay
+# =============================================================================
+#
+# Architecture ที่ใช้งานจริง:
+#
+#                   OpenStack Control Plane
+#                    192.168.1.0/24
+#                              |
+#                +-------------+-------------+
+#                |                           |
+#          controller01                 compute01
+#          ens3 192.168.1.160           ens3 192.168.1.7
+#          Underlay MTU 1450            Underlay MTU 1450
+#                |                           |
+#                +----- VXLAN Tunnel --------+
+#                                             |
+#                                       OVS / Libvirt
+#                                             |
+#                                      cs223-test-vm
+#                                      eth0 MTU 1400
+#                                      10.10.10.117/24
+#
+# Neutron Tenant Network:
+#   Network Name : cs223-private-net
+#   Subnet Name  : cs223-private-subnet
+#   CIDR         : 10.10.10.0/24
+#   Type         : vxlan
+#   Observed MTU : 1400
+#   DHCP         : enabled
+#   Gateway field: 10.10.10.1
+#
+# Gateway Field ≠ Router ที่สร้างและเชื่อมต่อแล้ว
+# ใน Lab เดิมยังไม่ได้สร้าง Tenant Router เพื่อทดสอบ Internet Access
+#
+# =============================================================================
+# 05. DHCP and Guest Network MTU
+# =============================================================================
+#
+# Neutron จัดเก็บค่า mtu ของ Network และมีวิธีโฆษณาค่า MTU ไปยัง Guest
+# สำหรับ IPv4 DHCP Agent สามารถส่งข้อมูล MTU ผ่าน DHCP ตามค่า Config
+# และการรองรับของ Client/Guest
+#
+# Evidence จากการทดสอบสำเร็จ:
+#   1) Neutron Network cs223-private-net มี MTU 1400
+#   2) CirrOS เริ่มระบบสำเร็จและรับ DHCP Lease เป็น 10.10.10.117/24
+#   3) Guest Interface eth0 แสดง "mtu 1400" และสถานะ UP, LOWER_UP
+#
+# ข้อสังเกต:
+#   - global_physnet_mtu ไม่ใช่ DHCP Server Address
+#   - global_physnet_mtu ไม่ใช่ Subnet CIDR หรือ Allocation Pool
+#   - DHCP Enabled/Disabled และ CIDR ตั้งค่าผ่าน Neutron Subnet API
+#   - ไม่ควรกำหนด IP ของ VM ลงใน neutron.conf
+#
+# =============================================================================
+# 06. Kolla Ansible Configuration Override Layout
+# =============================================================================
+#
+# Repository Path (ใช้เก็บตัวอย่างและคำอธิบาย):
+#
+#   CS223-TermProject/
+#   └── config/
+#       └── neutron/
+#           ├── neutron.conf.example       <-- ไฟล์นี้
+#           └── ml2_conf.ini.example
+#
+# Kolla Ansible Custom Config Directory ที่ใช้ตามค่า Default:
+#
+#   /etc/kolla/config/
+#   └── neutron/
+#       ├── neutron.conf                   <-- Override สำหรับ Neutron
+#       └── ml2_conf.ini                  <-- Override สำหรับ ML2
+#
+# หลักการทำงานของ Kolla:
+#   - Kolla สร้าง Configuration ส่วนอื่นของ Neutron ให้โดยอัตโนมัติ
+#   - Operator วาง Override เฉพาะ Options ที่ต้องแก้
+#   - Kolla ทำการ Merge Override เข้ากับ Service Configuration
+#   - ตัวอย่างนี้ไม่เก็บ DB URL, RabbitMQ Password, Keystone Password
+#
+# คำเตือนสำคัญ:
+#   - อย่าคัดลอกไฟล์ตัวอย่างไปทับ File ที่ใช้งานอยู่โดยไม่เปรียบเทียบก่อน
+#   - การเปลี่ยน Override ไม่ใช่การ Apply ค่าไปยัง Running Container ทันที
+#   - การ Apply อาจต้องใช้ Kolla Ansible reconfigure ตามขั้นตอนที่ควบคุม
+#     Change และ Maintenance Window ของทีม
+#   - ไม่ควรรัน reconfigure หรือ deploy เพียงเพื่อจัดทำเอกสาร GitHub
+#
+# =============================================================================
+# 07. Read-Only Verification — Host/Interface
+# =============================================================================
+#
+# ทดสอบบน controller01 หรือ compute01:
+#
+#   ip -br link show ens3
+#   ip -d link show ens3
+#
+# ผลที่ต้องตรวจ:
+#   - ens3 มีอยู่จริง
+#   - ens3 ใช้ MTU 1450
+#   - Link ทำงานตามที่คาดไว้
+#
+# การตรวจ Host MTU ต้องทำแยกจาก Neutron Network MTU เพราะตั้งค่าอิสระกัน
+#
+# =============================================================================
+# 08. Read-Only Verification — Neutron Override
+# =============================================================================
+#
+# ทดสอบบน controller01:
+#
+#   sudo grep -nE '^[[:space:]]*global_physnet_mtu[[:space:]]*=' \
+#     /etc/kolla/config/neutron/neutron.conf
+#
+# ผลที่คาดหวังสำหรับ Lab:
+#   global_physnet_mtu = 1450
+#
+# ถ้าไม่พบ อย่าสรุปทันทีว่าค่าใน Running Container ผิด:
+# ให้ตรวจว่า Kolla ใช้ Custom Config Directory อื่นหรือไม่
+# และตรวจ Generated Configuration ที่ Service ใช้จริงตาม Change Procedure
+#
+# ควรหลีกเลี่ยงการ `cat` ไฟล์ Generated Config ทั้งหมดใน Screenshot
+# เพราะไฟล์เหล่านั้นอาจมี DB Credentials, Service Tokens หรือ Secrets
+#
+# =============================================================================
+# 09. Read-Only Verification — Network and Instance
+# =============================================================================
+#
+# บน controller01 (OpenStack CLI ติดตั้งใน ~/openstack-cli-venv):
+#
+#   (
+#     source /etc/kolla/admin-openrc.sh
+#     ~/openstack-cli-venv/bin/openstack network show cs223-private-net \
+#       -f yaml -c name -c status -c mtu -c provider:network_type
+#   )
+#
+# Expected:
+#   name                  = cs223-private-net
+#   status                = ACTIVE
+#   mtu                   = 1400
+#   provider:network_type = vxlan
+#
+# ตรวจสอบ VM:
+#
+#   (
+#     source /etc/kolla/admin-openrc.sh
+#     ~/openstack-cli-venv/bin/openstack server show cs223-test-vm \
+#       -f yaml -c name -c status -c networks -c OS-EXT-SRV-ATTR:host
+#   )
+#
+# Expected:
+#   name     = cs223-test-vm
+#   status   = ACTIVE
+#   networks = cs223-private-net=10.10.10.117 (ค่าที่พบตอนทดสอบ)
+#   host     = compute01
+#
+# ภายใน CirrOS Guest ผ่าน noVNC Console:
+#
+#   ip -4 addr show eth0
+#   ip link show eth0
+#
+# Expected:
+#   IPv4 Address = 10.10.10.117/24
+#   eth0 MTU     = 1400
+#   Link         = UP, LOWER_UP
+#
+# คำสั่งเหล่านี้ใช้ตรวจสอบเท่านั้น ไม่ทำให้ Configuration เปลี่ยน
+#
+# =============================================================================
+# 10. Troubleshooting — Common Symptoms
+# =============================================================================
+#
+# A) Guest MTU แสดง 1500 แต่ Underlay ใช้ 1450:
+#    - ตรวจค่า global_physnet_mtu และ path_mtu ว่าสอดคล้องกันหรือไม่
+#    - ตรวจ MTU ของ Neutron Network (`openstack network show`)
+#    - ตรวจว่า DHCP/Guest ได้รับค่า MTU ล่าสุดหรือไม่
+#    - ตรวจ Path MTU ของ Underlay ทุก Node ที่เกี่ยวข้อง
+#
+# B) Network MTU แสดง 1400 แต่สื่อสารระหว่าง VM ไม่ได้:
+#    - อย่าสรุปว่าปัญหาอยู่ที่ MTU อย่างเดียว
+#    - ตรวจ Neutron Agent / OVS / VXLAN Tunnel Connectivity
+#    - ตรวจ Security Group Rules และ Port Status
+#    - ตรวจ DHCP และ Neutron Namespace ตาม Network Topology
+#
+# C) แก้ Override แล้ว Network เดิมยังมี MTU เก่า:
+#    - Neutron Network MTU ที่สร้างไว้แล้วอาจไม่ถูก Update ทันที
+#    - ต้องตรวจว่าสนับสนุน net-mtu-writable API Extension หรือไม่
+#    - การแก้ Network MTU ที่ใช้งานจริงเป็น Change ที่มีผลต่อ Guest
+#    - อ่าน Official MTU Guide และวางแผนก่อนแก้ไขค่า
+#
+# D) เปิด Horizon ได้ แต่ Guest ออก Internet ไม่ได้:
+#    - Horizon Availability ไม่ได้แปลว่ามี External/Provider Network
+#    - Lab นี้ใช้ `dummy0` เป็น Interface สำหรับ External Simulation
+#    - ยังไม่มีหลักฐานยืนยัน Router, SNAT หรือ Floating IP ที่ใช้งานได้จริง
+#    - ไม่ใช่ปัญหาที่แก้ด้วย global_physnet_mtu อย่างเดียว
+#
+# =============================================================================
+# 11. Public Repository Security
+# =============================================================================
+#
+# สามารถเผยแพร่:
+#   - Neutron MTU Override ที่ตรวจสอบแล้ว
+#   - Architecture Diagram และ Verification Commands
+#   - ตัวอย่างนี้และ ml2_conf.ini.example
+#
+# ห้ามเผยแพร่:
+#   - /etc/kolla/passwords.yml
+#   - /etc/kolla/admin-openrc.sh
+#   - /etc/kolla/clouds.yaml ที่มี Credentials
+#   - SSH Private Keys
+#   - Console URL ที่มี Token
+#   - Logs เต็มที่อาจบันทึก Password หรือ Token
+#
+# ตัวอย่างนี้ไม่มี Secret และไม่มีคำสั่งเปลี่ยน Runtime State
+#
+# =============================================================================
+# 12. Evidence Mapping
+# =============================================================================
+#
+# เอกสารที่จะใช้อ้างอิงผลการทดสอบ:
+#   docs/02-architecture.md
+#   docs/04-kolla-deployment.md
+#   docs/05-deployment-verification.md
+#   docs/07-handover.md
+#
+# Screenshot ที่เกี่ยวข้อง:
+#   evidence/02-services/04-neutron-agents.png
+#   evidence/03-vm-validation/01-instance-active.png
+#   evidence/03-vm-validation/03-cirros-network.png
+#
+# โปรดเพิ่ม Screenshot จริงลง Repository ภายหลังตามชื่อที่กำหนด
+# ห้ามใส่รูปแทนหรืออ้างว่าเป็นหลักฐานที่ถ่ายแล้วหากยังไม่มีไฟล์จริง
+#
+# =============================================================================
+# 13. Reproducibility Notes
+# =============================================================================
+#
+# ตัวอย่างนี้ใช้กับ Environment ที่มีเงื่อนไข:
+#   - Underlay IPv4 MTU 1450
+#   - VXLAN Overlay ใช้ IPv4 Tunnel Endpoints
+#   - Neutron ML2/Open vSwitch
+#   - Kolla Ansible 2026.1
+#   - Interface ens3 มี IP สื่อสารระหว่าง Node ได้
+#
+# หาก Underlay ไม่ใช่ 1450 ให้ประเมิน MTU ใหม่ และปรับทั้ง:
+#   1) Neutron [DEFAULT] global_physnet_mtu
+#   2) ML2 [ml2] path_mtu (ถ้าจำเป็นตาม Topology)
+#   3) MTU ของ NIC/Switch/Router ภายนอก OpenStack
+#   4) Existing Neutron Networks/Guest MTU ตาม Change Procedure
+#
+# END OF FILE
