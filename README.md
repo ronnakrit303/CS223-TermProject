@@ -12,10 +12,12 @@
 - ✅ สร้าง VM จาก CirrOS Image ได้จริง โดย VM อยู่ในสถานะ `ACTIVE`
 - ✅ VM Boot ได้ เข้าถึงผ่าน noVNC และได้รับ IPv4 จาก Neutron DHCP
 - ✅ เข้าสู่ระบบ Horizon Dashboard ด้วยบัญชีผู้ดูแลระบบได้
-- 📄 จัดทำร่างเอกสาร `docs/` ครบ 7 ไฟล์, Configuration Examples 4 ไฟล์ และ Verification Script แล้ว
-- 📸 กู้คืน Screenshot จริงได้ **6 จาก 11 ภาพ** พร้อม Deployment Log Excerpt; หลักฐานภาพอีก **5 รายการยังขาด**
+- ✅ สร้าง Router (`cs223-router`), Security Group (`SSH-ICMP`), Key Pair (`cs223-key`) และทดสอบ Ping ข้ามโฮสต์ถึง Gateway (`10.10.10.1`) สำเร็จ
+- ✅ ทดสอบงาน Admin (`Project-A`, `A-user`, Role `member` RBAC และ Quota) ผ่านทั้ง Horizon และ OpenStack CLI
+- 📄 จัดทำเอกสาร `docs/` ครบ 9 ไฟล์, Configuration Examples 4 ไฟล์ และ Verification Script แล้ว
+- 📸 รวบรวม Screenshot จริงครบ **11/11 ภาพพื้นฐาน** พร้อมภาพทดสอบฝั่ง QA/Admin ของคนที่ 3 อีก **9 ภาพ** (รวม **20 ภาพ** ใน `evidence/`)
 
-> **ขอบเขตสำคัญ:** ระบบนี้ออกแบบเป็น **Single Controller + Single Compute Node** สำหรับการเรียนและการทดลอง ไม่ใช่ระบบ Production หรือ High Availability (HA) และยังไม่ได้ยืนยันการใช้งาน External Network, Floating IP หรือการออกอินเทอร์เน็ตจาก VM
+> **ขอบเขตสำคัญ:** ระบบนี้ออกแบบเป็น **Single Controller + Single Compute Node** สำหรับการเรียนและการทดลอง ไม่ใช่ระบบ Production หรือ High Availability (HA) และเนื่องจากใช้ `dummy0` เป็น External Interface จำลอง จึงยังไม่ได้ยืนยันการออกอินเทอร์เน็ตภายนอกหรือ Floating IP จากนอก Lab เข้าสู่ Guest VM
 
 ---
 
@@ -237,7 +239,7 @@ CLI ถูกติดตั้งแยกไว้ที่ `~/openstack-cli-v
 
 ## โครงสร้าง Repository และเอกสาร
 
-โครงสร้างเป้าหมายสำหรับ Repository (แสดงหลักฐานที่มีไฟล์ต้นฉบับแล้ว; ไฟล์ภาพที่ยังไม่พบจะแสดงในตาราง Evidence ด้านล่าง ไม่สร้างไฟล์เปล่าแทนภาพจริง):
+โครงสร้างของ Repository (แสดงไฟล์เอกสาร, Configuration Examples และหลักฐานภาพจริงทั้ง 20 ภาพที่จัดเก็บแล้ว):
 
 ```text
 CS223-TermProject/
@@ -250,7 +252,9 @@ CS223-TermProject/
 │   ├── 04-kolla-deployment.md
 │   ├── 05-deployment-verification.md
 │   ├── 06-troubleshooting.md
-│   └── 07-handover.md
+│   ├── 07-handover.md
+│   ├── 08-qa-test-cases-and-admin.md
+│   └── 09-final-report-draft-and-demo-script.md
 ├── config/
 │   ├── multinode.example
 │   ├── globals.example.yml
@@ -258,19 +262,31 @@ CS223-TermProject/
 │       ├── neutron.conf.example
 │       └── ml2_conf.ini.example
 ├── evidence/
-│   ├── README.md
-│   ├── evidence-manifest.csv
 │   ├── 01-deployment/
-│   │   └── 02-deploy-recap.txt           # Log excerpt (ไม่ใช่ Screenshot)
+│   │   ├── 01-prechecks.png
+│   │   ├── 02-deploy-recap.png
+│   │   └── 03-post-deploy.png
 │   ├── 02-services/
+│   │   ├── 01-controller-containers.png
+│   │   ├── 02-compute-containers.png
 │   │   ├── 03-nova-services.png
-│   │   └── 04-neutron-agents.png
+│   │   ├── 04-neutron-agents.png
+│   │   ├── 05-horizon-hypervisors.png
+│   │   └── 06-horizon-network-agents.png
 │   ├── 03-vm-validation/
 │   │   ├── 01-instance-active.png
 │   │   ├── 02-cirros-console.png
-│   │   └── 03-cirros-network.png
-│   └── 04-horizon/
-│       └── 01-horizon-dashboard.png
+│   │   ├── 03-cirros-network.png
+│   │   └── 04-cirros-ping-gateway.png
+│   ├── 04-horizon/
+│   │   ├── 01-horizon-dashboard.png
+│   │   ├── 02-security-group-ssh-icmp.png
+│   │   ├── 03-network-topology.png
+│   │   └── 04-key-pairs.png
+│   └── 05-admin/
+│       ├── 01-project-a-edit-quotas.png
+│       ├── 02-a-user-rbac-overview.png
+│       └── 03-cli-router-secgroup-rbac-quota.png
 └── scripts/
     └── verify-deployment.sh
 ```
@@ -284,41 +300,50 @@ CS223-TermProject/
 | [Deployment Verification](docs/05-deployment-verification.md) | คำสั่งตรวจสอบ เกณฑ์ผ่าน และผลทดสอบ |
 | [Troubleshooting](docs/06-troubleshooting.md) | ปัญหาที่พบ การวิเคราะห์สาเหตุ และแนวทางแก้ไข |
 | [Handover](docs/07-handover.md) | วิธีเข้าใช้งาน ตรวจสอบระบบ และข้อมูลส่งมอบสมาชิกคนที่ 3 |
+| [QA Test Cases & Admin](docs/08-qa-test-cases-and-admin.md) | ตาราง Test Cases (`TC-01`–`TC-14`) และขั้นตอน Admin ตามตำราอาจารย์ |
+| [Report Draft & Demo Script](docs/09-final-report-draft-and-demo-script.md) | ร่างเล่มรายงาน PDF (TH Sarabun) และบทพูด Demo Video |
 
 Configuration Examples: [Ansible Inventory](config/multinode.example) · [Kolla Globals](config/globals.example.yml) · [Neutron MTU](config/neutron/neutron.conf.example) · [Neutron ML2](config/neutron/ml2_conf.ini.example)
 
-> **หมายเหตุ:** ไฟล์ที่แสดงในโครงสร้างนี้เป็นไฟล์ที่จัดทำหรือกู้คืนไว้สำหรับนำขึ้น GitHub ไม่ใช่การยืนยันว่า Commit ครบทุกไฟล์บน Branch `main` แล้ว ลิงก์ภายในจะเปิดได้เมื่อเพิ่มไฟล์ตาม Path นี้ลง Repository
-
 ## หลักฐานการทดสอบ (Evidence)
 
-ภาพที่เคยบันทึกระหว่างทดลองและยังเข้าถึงไฟล์ต้นฉบับได้มี **6 จาก 11 รายการ** ภาพในกลุ่ม CirrOS Console ถูกตัดส่วน Address Bar ที่มี noVNC Token ออกเพื่อความปลอดภัย โดยไม่แก้ไขผลลัพธ์ใน Console ส่วนรายการที่ไม่มีต้นฉบับ **จะไม่สร้างภาพจำลองแทนหลักฐานจริง**
+ภาพหลักฐานจริงทั้งหมด **20 ภาพ** ถูกตรวจสอบและจัดเก็บครบถ้วนแล้ว (ตัดส่วน Address Bar ที่มี noVNC Token, ซ่อนข้อมูลลับ และไม่แสดง Outer Floating IP เพื่อความปลอดภัยสำหรับ Public Repository)
 
-### ภาพที่มีต้นฉบับแล้ว — 6 ภาพ
+### ภาพหลักฐาน Baseline ของการติดตั้งและระบบหลัก — 11 ภาพ (ครบ 11/11)
 
 | หมวด | ภาพหลักฐาน | สิ่งที่ยืนยัน |
 |---|---|---|
+| Deployment | [01-prechecks.png](evidence/01-deployment/01-prechecks.png) | Kolla Ansible Prechecks `failed=0`, `unreachable=0` |
+| Deployment | [02-deploy-recap.png](evidence/01-deployment/02-deploy-recap.png) | Kolla Ansible Deploy Recap (`compute01 failed=0`, `controller01 failed=0`) |
+| Deployment | [03-post-deploy.png](evidence/01-deployment/03-post-deploy.png) | สิทธิ์ไฟล์ `clouds.yaml` และ `admin-openrc.sh` (`600 ubuntu:ubuntu`) |
+| Services | [01-controller-containers.png](evidence/02-services/01-controller-containers.png) | รายการ Docker Containers บน `controller01` สถานะ `Up / healthy` |
+| Services | [02-compute-containers.png](evidence/02-services/02-compute-containers.png) | รายการ Docker Containers บน `compute01` และอุปกรณ์ `/dev/kvm` |
 | Services | [03-nova-services.png](evidence/02-services/03-nova-services.png) | สถานะ Nova Services รวมถึง `nova-compute` บน `compute01` |
-| Services | [04-neutron-agents.png](evidence/02-services/04-neutron-agents.png) | สถานะ Neutron Agents ที่ Alive/UP |
-| VM Validation | [01-instance-active.png](evidence/03-vm-validation/01-instance-active.png) | สถานะ VM `cs223-test-vm` เป็น `ACTIVE` |
+| Services | [04-neutron-agents.png](evidence/02-services/04-neutron-agents.png) | สถานะ Neutron Agents ทั้ง 5 ตัวที่ Alive/UP |
+| VM Validation | [01-instance-active.png](evidence/03-vm-validation/01-instance-active.png) | สถานะ VM `cs223-test-vm` เป็น `ACTIVE` บน `compute01` |
 | VM Validation | [02-cirros-console.png](evidence/03-vm-validation/02-cirros-console.png) | CirrOS Boot และ Login ผ่าน noVNC |
 | VM Validation | [03-cirros-network.png](evidence/03-vm-validation/03-cirros-network.png) | `eth0` ของ VM มี IP `10.10.10.117/24` และ MTU 1400 |
 | Horizon | [01-horizon-dashboard.png](evidence/04-horizon/01-horizon-dashboard.png) | Login และแสดงหน้า Horizon Overview ได้ |
+
+### ภาพหลักฐานการทดสอบเพิ่มเติมและงาน Admin (คนที่ 3) — 9 ภาพ
+
+| หมวด | ภาพหลักฐาน | สิ่งที่ยืนยัน |
+|---|---|---|
+| Services (UI) | [05-horizon-hypervisors.png](evidence/02-services/05-horizon-hypervisors.png) | หน้า Horizon *Admin > Hypervisors* เห็น `compute01` สถานะ `Enabled / Up` |
+| Services (UI) | [06-horizon-network-agents.png](evidence/02-services/06-horizon-network-agents.png) | หน้า Horizon *System Information > Network Agents* ครบ 5 Agents |
+| VM Network | [04-cirros-ping-gateway.png](evidence/03-vm-validation/04-cirros-ping-gateway.png) | ทดสอบ `ping` ข้ามโฮสต์ถึง DHCP (`10.10.10.100`) และ Router (`10.10.10.1`) |
+| Horizon | [02-security-group-ssh-icmp.png](evidence/04-horizon/02-security-group-ssh-icmp.png) | Security Group `SSH-ICMP` เปิดกฏ ICMP และ SSH (Port 22) |
+| Horizon | [03-network-topology.png](evidence/04-horizon/03-network-topology.png) | แผนผัง Network Topology เชื่อม `cs223-router`, `cs223-private-net` และ VM |
+| Horizon | [04-key-pairs.png](evidence/04-horizon/04-key-pairs.png) | การสร้าง Key Pair `cs223-key` บน Horizon |
+| Admin (RBAC) | [01-project-a-edit-quotas.png](evidence/05-admin/01-project-a-edit-quotas.png) | การปรับตั้งค่า Compute Quota ของ `Project-A` (5 Instances, 4 vCPUs, 4096 MB) |
+| Admin (RBAC) | [02-a-user-rbac-overview.png](evidence/05-admin/02-a-user-rbac-overview.png) | ล็อกอินด้วย `A-user` เข้า `Project-A` (ไม่มีแท็บ Admin และ Quota ตรงตามกำหนด) |
+| Admin (CLI) | [03-cli-router-secgroup-rbac-quota.png](evidence/05-admin/03-cli-router-secgroup-rbac-quota.png) | ผล CLI ยืนยัน `router`, `SSH-ICMP`, `role assignment` และ `quota show Project-A` |
 
 **ตัวอย่างภาพหลักฐาน — Horizon หลัง Login:**
 
 ![OpenStack Horizon Dashboard หลังเข้าสู่ระบบสำเร็จ](evidence/04-horizon/01-horizon-dashboard.png)
 
-### หลักฐานที่ยังขาด — 5 ภาพ
-
-| ไฟล์เป้าหมาย | สถานะ / วิธีจัดการ |
-|---|---|
-| `evidence/01-deployment/01-prechecks.png` | **ยังไม่มี Screenshot ต้นฉบับ**; ถ้าเก็บภาพใหม่ให้ระบุวันที่ตรวจสอบใหม่ |
-| `evidence/01-deployment/02-deploy-recap.png` | **ยังไม่มี Screenshot ต้นฉบับ**; มี [Deployment Log Excerpt](evidence/01-deployment/02-deploy-recap.txt) แทนหลักฐานภาพ |
-| `evidence/01-deployment/03-post-deploy.png` | **ยังไม่มี Screenshot ต้นฉบับ**; ใช้ผลการสร้าง Client Config เป็นหลักฐานเสริมโดยไม่เปิดเผย Credential |
-| `evidence/02-services/01-controller-containers.png` | **ยังไม่มี Screenshot ต้นฉบับ**; เก็บจาก `docker ps` บน `controller01` ได้โดยไม่ต้อง Deploy ใหม่ |
-| `evidence/02-services/02-compute-containers.png` | **ยังไม่มี Screenshot ต้นฉบับ**; เก็บจาก `docker ps` บน `compute01` ได้โดยไม่ต้อง Deploy ใหม่ |
-
-ตัวอย่าง **Deployment Log Excerpt** ที่กู้คืนจากไฟล์ข้อความเดิม (ไม่ใช่ Screenshot):
+ตัวอย่าง **Deployment Log Excerpt** ที่กู้คืนจากไฟล์ข้อความเดิม:
 
 ```text
 PLAY RECAP
@@ -328,7 +353,7 @@ localhost    : ok=4    unreachable=0 failed=0
 DEPLOY EXIT STATUS: 0
 ```
 
-ข้อมูลใน Log เป็นผลจากการ Deploy ที่บันทึกไว้เดิม ไม่ใช่การตรวจสอบระบบแบบสดในเวลาที่อ่าน README นี้ สำหรับรายละเอียดแหล่งที่มาและการจัดการข้อมูลส่วนตัว โปรดอ่าน [Evidence README](evidence/README.md) และ [Evidence Manifest](evidence/evidence-manifest.csv)
+ข้อมูลใน Log เป็นผลจากการ Deploy ที่บันทึกไว้เดิม ส่วนภาพ `evidence/` ทั้ง 20 ภาพเป็นหลักฐานที่บันทึกจากการทดสอบจริงของกลุ่ม
 
 ## ตรวจสอบระบบด้วยสคริปต์
 
@@ -386,4 +411,4 @@ Repository นี้เป็น **Public Repository** จึงต้องต�
 **Course:** CS223 — Virtualization Technology  
 **Scope:** OpenStack Multinode Installation, Deployment, Basic Functional Verification และการจัดเก็บหลักฐาน
 
-**Evidence status:** 6/11 screenshots recovered · 5 screenshots missing · 1 original deploy log excerpt available
+**Evidence status:** 20 screenshots verified in repository (11/11 baseline + 9 Member 3 QA/Admin screenshots)
