@@ -15,7 +15,7 @@
 - ✅ สร้าง Router (`cs223-router`), Security Group (`SSH-ICMP`), Key Pair (`cs223-key`) และทดสอบ Ping ข้ามโฮสต์ถึง Gateway (`10.10.10.1`) สำเร็จ
 - ✅ ทดสอบงาน Admin (`Project-A`, `A-user`, Role `member` RBAC และ Quota) ผ่านทั้ง Horizon และ OpenStack CLI
 - 📄 จัดทำเอกสาร `docs/` ครบ 9 ไฟล์, Configuration Examples 4 ไฟล์ และ Verification Script แล้ว
-- 📸 รวบรวม Screenshot จริงครบ **11/11 ภาพพื้นฐาน** พร้อมภาพทดสอบฝั่ง QA/Admin ของคนที่ 3 อีก **9 ภาพ** (รวม **20 ภาพ** ใน `evidence/`)
+- 📸 รวบรวม Screenshot จริงครบ **11/11 ภาพพื้นฐาน** พร้อมภาพทดสอบฝั่ง QA/Admin ของคนที่ 3 อีก **13 ภาพ** (รวม **24 ภาพ** ใน `evidence/`)
 
 > **ขอบเขตสำคัญ:** ระบบนี้ออกแบบเป็น **Single Controller + Single Compute Node** สำหรับการเรียนและการทดลอง ไม่ใช่ระบบ Production หรือ High Availability (HA) และเนื่องจากใช้ `dummy0` เป็น External Interface จำลอง จึงยังไม่ได้ยืนยันการออกอินเทอร์เน็ตภายนอกหรือ Floating IP จากนอก Lab เข้าสู่ Guest VM
 
@@ -58,14 +58,17 @@ flowchart TB
     COMP["compute01<br/>192.168.1.7<br/>Compute Node"]
     API["Keystone · Nova API · Glance<br/>Placement · Neutron · Horizon"]
     INFRA["MariaDB · RabbitMQ<br/>Memcached · Open vSwitch"]
+    RTR["cs223-router (10.10.10.1)<br/>Neutron L3 / DHCP (10.10.10.100)"]
     HYP["Nova Compute · Libvirt / QEMU-KVM<br/>Open vSwitch"]
-    VM["cs223-test-vm<br/>CirrOS 0.6.3<br/>10.10.10.117"]
+    VM["cs223-test-vm<br/>CirrOS 0.6.3 · SG: SSH-ICMP<br/>10.10.10.117"]
 
     USER -->|"SSH Tunnel / CLI / Horizon"| CTRL
     CTRL --> API
     CTRL --> INFRA
-    CTRL <-->|"Underlay: 192.168.1.0/24<br/>VXLAN Overlay"| COMP
+    CTRL --> RTR
+    CTRL <-->|"Underlay: 192.168.1.0/24 (MTU 1450)<br/>VXLAN Overlay (MTU 1400)"| COMP
     COMP --> HYP --> VM
+    RTR -.->|"Ping Gateway & DHCP OK"| VM
 ```
 
 ### Nodes และ Network
@@ -85,7 +88,7 @@ flowchart TB
 - **Tenant/Internal Network:** `cs223-private-net` ใช้ VXLAN และ MTU 1400
 - **Subnet:** `cs223-private-subnet` (`10.10.10.0/24`)
 - **DHCP Pool:** `10.10.10.100`–`10.10.10.200`
-- **Subnet Gateway ที่กำหนดไว้:** `10.10.10.1` (ยังไม่มี Neutron Router มารับหน้าที่ Gateway นี้)
+- **Subnet Gateway (`cs223-router`):** `10.10.10.1` (สร้าง Router `cs223-router` เชื่อมต่อ `cs223-private-subnet` และทดสอบ Ping สำเร็จแล้ว)
 - **External Interface สำหรับ Lab:** `dummy0` บน Controller (ไม่ใช่ Physical Uplink ที่ยืนยันการออกอินเทอร์เน็ตได้)
 
 > IP ข้างต้นใช้บันทึกสภาพแวดล้อมที่ทดสอบจริงใน Lab เท่านั้น ไม่ใช่ชุด IP ที่จำเป็นต้องใช้กับทุก Deployment
@@ -239,7 +242,7 @@ CLI ถูกติดตั้งแยกไว้ที่ `~/openstack-cli-v
 
 ## โครงสร้าง Repository และเอกสาร
 
-โครงสร้างของ Repository (แสดงไฟล์เอกสาร, Configuration Examples และหลักฐานภาพจริงทั้ง 20 ภาพที่จัดเก็บแล้ว):
+โครงสร้างของ Repository (แสดงไฟล์เอกสาร, Configuration Examples และหลักฐานภาพจริงทั้ง 24 ภาพที่จัดเก็บแล้ว):
 
 ```text
 CS223-TermProject/
@@ -272,17 +275,21 @@ CS223-TermProject/
 │   │   ├── 03-nova-services.png
 │   │   ├── 04-neutron-agents.png
 │   │   ├── 05-horizon-hypervisors.png
-│   │   └── 06-horizon-network-agents.png
+│   │   ├── 06-horizon-network-agents.png
+│   │   └── 07-cli-services-resources.png
 │   ├── 03-vm-validation/
 │   │   ├── 01-instance-active.png
 │   │   ├── 02-cirros-console.png
 │   │   ├── 03-cirros-network.png
-│   │   └── 04-cirros-ping-gateway.png
+│   │   ├── 04-cirros-ping-gateway.png
+│   │   └── 05-instance-paused.png
 │   ├── 04-horizon/
 │   │   ├── 01-horizon-dashboard.png
 │   │   ├── 02-security-group-ssh-icmp.png
 │   │   ├── 03-network-topology.png
-│   │   └── 04-key-pairs.png
+│   │   ├── 04-key-pairs.png
+│   │   ├── 05-horizon-images.png
+│   │   └── 06-horizon-flavors.png
 │   └── 05-admin/
 │       ├── 01-project-a-edit-quotas.png
 │       ├── 02-a-user-rbac-overview.png
@@ -307,7 +314,7 @@ Configuration Examples: [Ansible Inventory](config/multinode.example) · [Kolla 
 
 ## หลักฐานการทดสอบ (Evidence)
 
-ภาพหลักฐานจริงทั้งหมด **20 ภาพ** ถูกตรวจสอบและจัดเก็บครบถ้วนแล้ว (ตัดส่วน Address Bar ที่มี noVNC Token, ซ่อนข้อมูลลับ และไม่แสดง Outer Floating IP เพื่อความปลอดภัยสำหรับ Public Repository)
+ภาพหลักฐานจริงทั้งหมด **24 ภาพ** ถูกตรวจสอบและจัดเก็บครบถ้วนแล้ว (ตัดส่วน Address Bar ที่มี noVNC Token, ซ่อนข้อมูลลับ และไม่แสดง Outer Floating IP เพื่อความปลอดภัยสำหรับ Public Repository)
 
 ### ภาพหลักฐาน Baseline ของการติดตั้งและระบบหลัก — 11 ภาพ (ครบ 11/11)
 
@@ -325,16 +332,20 @@ Configuration Examples: [Ansible Inventory](config/multinode.example) · [Kolla 
 | VM Validation | [03-cirros-network.png](evidence/03-vm-validation/03-cirros-network.png) | `eth0` ของ VM มี IP `10.10.10.117/24` และ MTU 1400 |
 | Horizon | [01-horizon-dashboard.png](evidence/04-horizon/01-horizon-dashboard.png) | Login และแสดงหน้า Horizon Overview ได้ |
 
-### ภาพหลักฐานการทดสอบเพิ่มเติมและงาน Admin (คนที่ 3) — 9 ภาพ
+### ภาพหลักฐานการทดสอบเพิ่มเติมและงาน Admin (คนที่ 3) — 13 ภาพ
 
 | หมวด | ภาพหลักฐาน | สิ่งที่ยืนยัน |
 |---|---|---|
 | Services (UI) | [05-horizon-hypervisors.png](evidence/02-services/05-horizon-hypervisors.png) | หน้า Horizon *Admin > Hypervisors* เห็น `compute01` สถานะ `Enabled / Up` |
 | Services (UI) | [06-horizon-network-agents.png](evidence/02-services/06-horizon-network-agents.png) | หน้า Horizon *System Information > Network Agents* ครบ 5 Agents |
+| Services (CLI) | [07-cli-services-resources.png](evidence/02-services/07-cli-services-resources.png) | ผล CLI `token issue`, `service list`, `image list`, `flavor list`, `network list` |
 | VM Network | [04-cirros-ping-gateway.png](evidence/03-vm-validation/04-cirros-ping-gateway.png) | ทดสอบ `ping` ข้ามโฮสต์ถึง DHCP (`10.10.10.100`) และ Router (`10.10.10.1`) |
+| VM Lifecycle | [05-instance-paused.png](evidence/03-vm-validation/05-instance-paused.png) | ทดสอบ Pause Instance `cs223-test-vm` เปลี่ยนสถานะเป็น `Paused` สำเร็จ |
 | Horizon | [02-security-group-ssh-icmp.png](evidence/04-horizon/02-security-group-ssh-icmp.png) | Security Group `SSH-ICMP` เปิดกฏ ICMP และ SSH (Port 22) |
 | Horizon | [03-network-topology.png](evidence/04-horizon/03-network-topology.png) | แผนผัง Network Topology เชื่อม `cs223-router`, `cs223-private-net` และ VM |
 | Horizon | [04-key-pairs.png](evidence/04-horizon/04-key-pairs.png) | การสร้าง Key Pair `cs223-key` บน Horizon |
+| Horizon | [05-horizon-images.png](evidence/04-horizon/05-horizon-images.png) | หน้า Horizon *Compute > Images* เห็น `cirros-0.6.3` (`Active`, `QCOW2`) |
+| Horizon | [06-horizon-flavors.png](evidence/04-horizon/06-horizon-flavors.png) | หน้า Horizon *Admin > Flavors* เห็น `cs223.tiny` (1 vCPU, 512MB, 1GB) |
 | Admin (RBAC) | [01-project-a-edit-quotas.png](evidence/05-admin/01-project-a-edit-quotas.png) | การปรับตั้งค่า Compute Quota ของ `Project-A` (5 Instances, 4 vCPUs, 4096 MB) |
 | Admin (RBAC) | [02-a-user-rbac-overview.png](evidence/05-admin/02-a-user-rbac-overview.png) | ล็อกอินด้วย `A-user` เข้า `Project-A` (ไม่มีแท็บ Admin และ Quota ตรงตามกำหนด) |
 | Admin (CLI) | [03-cli-router-secgroup-rbac-quota.png](evidence/05-admin/03-cli-router-secgroup-rbac-quota.png) | ผล CLI ยืนยัน `router`, `SSH-ICMP`, `role assignment` และ `quota show Project-A` |
@@ -385,7 +396,7 @@ bash scripts/verify-deployment.sh
 
 - ระบบมี **Controller เพียงเครื่องเดียว** จึงไม่มี High Availability หรือการ Failover ของ Control Plane
 - ใช้ `dummy0` เป็น External Interface สำหรับ Lab; **ยังไม่ได้ยืนยัน External Provider Network หรือ Internet Connectivity**
-- ยังไม่ได้ทดสอบการใช้งาน **Floating IP, Neutron Router หรือ North–South Traffic**
+- ยังไม่ได้ทดสอบการใช้งาน **Floating IP, External Provider Uplink หรือการออกอินเทอร์เน็ต (North–South Traffic)** (ทดสอบเฉพาะ Router ภายใน `cs223-router` ถึง Gateway `10.10.10.1` แล้ว)
 - ยังไม่ได้ทดสอบการเชื่อมต่อระหว่าง VM หลายเครื่อง (East–West Traffic) หรือการรองรับภาระงานจริง
 - ไม่ได้เปิดใช้ Cinder และ Heat ใน Deployment นี้
 - ผลการทดสอบเป็น **Functional Smoke Test** ไม่ใช่ Benchmark, Security Audit หรือ Production Readiness Assessment
@@ -411,4 +422,4 @@ Repository นี้เป็น **Public Repository** จึงต้องต�
 **Course:** CS223 — Virtualization Technology  
 **Scope:** OpenStack Multinode Installation, Deployment, Basic Functional Verification และการจัดเก็บหลักฐาน
 
-**Evidence status:** 20 screenshots verified in repository (11/11 baseline + 9 Member 3 QA/Admin screenshots)
+**Evidence status:** 24 screenshots verified in repository (11/11 baseline + 13 Member 3 QA/Admin screenshots)

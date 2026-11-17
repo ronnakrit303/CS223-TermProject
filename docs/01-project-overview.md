@@ -71,14 +71,14 @@ OpenStack เป็นกรณีศึกษาที่เหมาะสำ�
 | High Availability / Controller Failover | ไม่อยู่ในขอบเขตของ Topology แบบ Single Controller |
 | External Provider Network ที่เชื่อมต่อออกภายนอกจริง | ยังไม่ได้ทดสอบ; `dummy0` เป็น Interface สำหรับ Lab |
 | Floating IP และการเข้าถึง VM จากเครือข่ายภายนอก | ยังไม่ได้ทดสอบ |
-| การใช้งาน Neutron Router เพื่อส่งทราฟฟิกออกภายนอก | ยังไม่ได้สร้างและทดสอบ Router |
+| การใช้งาน Neutron Router เพื่อส่งทราฟฟิกออกภายนอก | สร้าง `cs223-router` (`10.10.10.1`) และทดสอบ Ping ภายในสำเร็จแล้ว; ยังไม่มี External Uplink ออกอินเทอร์เน็ต |
 | การสื่อสารระหว่าง VM หลายเครื่อง (East–West Traffic) | ยังไม่ได้ทดสอบ |
 | Cinder Block Storage และ Heat Orchestration | ไม่ได้เปิดใช้ใน Deployment นี้ |
 | Performance Benchmark / Load Testing | ยังไม่ได้ทดสอบ |
 | Security Hardening / Penetration Testing / Production Readiness | ไม่ได้ประเมินในโครงงานนี้ |
 | การกู้คืนหลัง Host Reboot / Disaster Recovery | ยังไม่ได้ตรวจสอบแบบครบวงจร |
 
-**ข้อควรแยกให้ชัด:** การได้รับ IP ผ่าน DHCP และมี Default Route ใน VM **ไม่ได้ยืนยัน** ว่าสามารถเชื่อมต่ออินเทอร์เน็ตได้ เนื่องจากยังไม่มี Router/Gateway ที่ใช้งานจริงใน Tenant Network นี้
+**ข้อควรแยกให้ชัด:** การที่ VM Ping ถึง `cs223-router` (`10.10.10.1`) ได้สำเร็จ **ไม่ได้ยืนยัน** ว่าสามารถเชื่อมต่ออินเทอร์เน็ตได้ เนื่องจากยังไม่มี External Provider Uplink จริง (`dummy0` เป็น Interface จำลอง)
 
 ## 5. สถาปัตยกรรมระบบระดับสูง (High-Level Architecture)
 
@@ -133,7 +133,7 @@ flowchart TB
 | DHCP Allocation Pool | `10.10.10.100`–`10.10.10.200` | ช่วง IP สำหรับ DHCP Allocation |
 | DHCP Port IP | `10.10.10.100` | Port ของ Neutron DHCP Service |
 | Test VM IP | `10.10.10.117/24` | IPv4 ที่ Guest OS ได้รับจริง |
-| Subnet Gateway ที่กำหนดไว้ | `10.10.10.1` | ตั้งค่าใน Subnet แต่ยังไม่มี Router มารับหน้าที่ |
+| Subnet Gateway (`cs223-router`) | `10.10.10.1` | เชื่อมต่อ `cs223-router` แล้ว และทดสอบ Ping จาก Guest VM สำเร็จ |
 | External Interface สำหรับ Lab | `dummy0` | Interface จำลอง ไม่ใช่ Uplink สู่ Internet |
 
 ### 5.4 เทคโนโลยีหลัก

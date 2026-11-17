@@ -213,7 +213,7 @@ flowchart LR
 | **Nova noVNC Proxy** (`nova_novncproxy`) | Controller | ให้ Browser เชื่อมต่อ VNC Console ของ VM |
 | **Neutron Server** (`neutron_server`) | Controller | API/Control Plane สำหรับ Virtual Networking |
 | **Neutron DHCP Agent** (`neutron_dhcp_agent`) | Controller | ดูแล DHCP Service ของ Network ที่ได้รับมอบหมาย |
-| **Neutron L3 Agent** (`neutron_l3_agent`) | Controller | บริการ Routing เมื่อมี Router ถูกสร้าง (ขณะทดสอบยังไม่มี Router) |
+| **Neutron L3 Agent** (`neutron_l3_agent`) | Controller | บริการ Routing สำหรับ `cs223-router` (`10.10.10.1`) บน Network ที่เชื่อมต่อ |
 | **Neutron Metadata Agent** (`neutron_metadata_agent`) | Controller | รองรับการส่งข้อมูล Metadata ไปยัง VM |
 | **Neutron OVS Agent** (`neutron_openvswitch_agent`) | ทั้งสอง Nodes | ตั้งค่าและรายงานการเชื่อมต่อ Virtual Network ผ่าน OVS |
 | **Nova Compute** (`nova_compute`) | Compute | จัดการวงจรชีวิตของ VM บน Hypervisor |
@@ -254,7 +254,7 @@ flowchart LR
 | DHCP Allocation Pool | `10.10.10.100–10.10.10.200` | ช่วง IP ที่กำหนดสำหรับ Ports ใน Tenant Subnet |
 | DHCP Port IP | `10.10.10.100` | IP ของ Port ที่มี `device_owner=network:dhcp` |
 | Guest VM IP (observed) | `10.10.10.117` | IP ที่ VM ได้รับจริง ณ เวลาทดสอบ; อาจเปลี่ยนได้หากสร้าง VM ใหม่ |
-| Subnet Gateway (configured) | `10.10.10.1` | ระบุไว้ใน Subnet แต่ยัง **ไม่มี Neutron Router** มารับบท Gateway จริง |
+| Subnet Gateway (`cs223-router`) | `10.10.10.1` | เชื่อมต่อ Router `cs223-router` เข้ากับ `cs223-private-subnet` และทดสอบ Ping สำเร็จแล้ว |
 | External Interface (Lab) | `dummy0` | Interface จำลองต่อกับ OVS `br-ex` บน Controller; ไม่ใช่ Uplink สู่อินเทอร์เน็ตที่ทดสอบแล้ว |
 
 ### 5.2 Underlay และ VXLAN Overlay
@@ -262,18 +262,21 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph UNDERLAY["Underlay Network — 192.168.1.0/24 · MTU 1450"]
-        C["controller01<br/>ens3: 192.168.1.160<br/>OVS / Neutron DHCP"]
+        C["controller01<br/>ens3: 192.168.1.160<br/>OVS / Neutron DHCP / L3 Router"]
         N["compute01<br/>ens3: 192.168.1.7<br/>OVS / nova-compute"]
         C <-->|"IP Transport for VXLAN"| N
     end
 
     subgraph TENANT["Tenant VXLAN Overlay — cs223-private-net · MTU 1400"]
         D["DHCP Port<br/>10.10.10.100"]
+        R["Router Interface<br/>cs223-router: 10.10.10.1"]
         V["VM eth0<br/>10.10.10.117/24"]
         D <-.->|"Virtual L2 Network"| V
+        R <-.->|"ICMP Ping OK"| V
     end
 
     C --- D
+    C --- R
     N --- V
 ```
 
@@ -283,9 +286,9 @@ flowchart LR
 2. Open vSwitch สร้างเส้นทาง Virtual Switching สำหรับ Neutron Tenant Network ชนิด VXLAN
 3. VXLAN ห่อหุ้ม Ethernet Frame จากเครือข่าย Tenant ให้ส่งผ่าน Underlay IP Network ได้
 4. Tenant Network มี MTU ที่น้อยกว่า Underlay เพื่อเผื่อ Header ของ Tunnel; ในผลทดสอบ MTU เป็น **1450 → 1400**
-5. DHCP Service อยู่บน Controller และ Guest VM อยู่บน Compute แต่ยังอยู่ใน Virtual Network เดียวกันผ่าน Overlay
+5. DHCP Service และ Router (`cs223-router`) อยู่บน Controller ขณะที่ Guest VM อยู่บน Compute แต่สื่อสารกันข้ามโฮสต์ผ่าน VXLAN Overlay ได้จริง (ยืนยันด้วย `ping 10.10.10.100` และ `ping 10.10.10.1` ได้ `0% packet loss`)
 
-**ข้อจำกัด:** การตรวจสอบที่ผ่านมาแสดงว่า VM ได้รับ DHCP Lease จาก Agent บน Controller สำเร็จ ซึ่งเป็นหลักฐานของเส้นทางเครือข่ายที่ใช้งานได้ในกรณีนี้ แต่ **ยังไม่ได้ทดสอบ Throughput, MTU Path ภายใต้ Packet Size หลายระดับ หรือ East–West Traffic ระหว่าง VM หลายเครื่อง**
+**ข้อจำกัด:** การตรวจสอบแสดงว่า VM รับ DHCP Lease และ Ping ข้ามโฮสต์ถึง DHCP/Router Gateway บน Controller ได้สำเร็จ แต่ **ยังไม่ได้ทดสอบ Throughput, MTU Path ภายใต้ Packet Size หลายระดับ, East–West Traffic ระหว่าง VM หลายเครื่อง หรือ External Internet Egress**
 
 ### 5.3 Neutron Network Objects ที่สร้างไว้
 
@@ -294,27 +297,27 @@ flowchart TB
     NW["Network: cs223-private-net<br/>Type: VXLAN · Status: ACTIVE"]
     SUB["Subnet: cs223-private-subnet<br/>10.10.10.0/24 · DHCP enabled"]
     DPORT["DHCP Port<br/>10.10.10.100<br/>device_owner: network:dhcp"]
-    VPORT["Instance Port<br/>10.10.10.117"]
+    RTR["Router: cs223-router<br/>Status: ACTIVE · Interface: 10.10.10.1"]
+    VPORT["Instance Port<br/>10.10.10.117 · SG: SSH-ICMP"]
     VM["cs223-test-vm<br/>ACTIVE on compute01"]
-    GATE["Configured Gateway: 10.10.10.1<br/>No router attached yet"]
 
     NW --> SUB
     SUB --> DPORT
+    SUB --> RTR
     SUB --> VPORT --> VM
-    SUB -.-> GATE
 ```
 
 - `cs223-private-net` สร้างเป็น **Internal Network** ไม่ใช่ External Provider Network
 - `cs223-private-subnet` เปิด DHCP และกำหนด Pool `10.10.10.100–10.10.10.200`
-- DHCP Port มีสถานะ `ACTIVE` และ `device_owner=network:dhcp`
-- Test VM ได้ IPv4 `10.10.10.117/24` จริงจาก DHCP
-- **ยังไม่มี Router, Floating IP หรือ Internet Egress สำหรับ Guest VM ที่ยืนยันการใช้งานแล้ว**
+- DHCP Port (`10.10.10.100`) และ Router Interface (`10.10.10.1` ของ `cs223-router`) มีสถานะ `ACTIVE`
+- Test VM (`cs223-test-vm`) ผูก Security Group `SSH-ICMP`, ได้รับ IPv4 `10.10.10.117/24` และ Ping ถึง `10.10.10.100` กับ `10.10.10.1` สำเร็จ
+- **ยังไม่มี External Network Uplink, Floating IP หรือ Internet Egress สำหรับ Guest VM ที่ใช้งานได้จริง**
 
-### 5.4 ทำไมมี Default Route แต่ยังออกอินเทอร์เน็ตไม่ได้?
+### 5.4 ทำไมมี Router แล้วแต่ยังออกอินเทอร์เน็ตไม่ได้?
 
-ใน Console Log ของ CirrOS พบข้อความว่าระบบเพิ่ม Default Route ไปยัง `10.10.10.1` ซึ่งเกิดจากค่า Gateway ที่ประกาศผ่าน DHCP แต่ **การตั้งค่า Route ใน Guest ไม่เท่ากับการมี Gateway ที่ส่ง Packet ได้จริง** เพราะขณะทดสอบ `openstack router list` ยังว่าง
+แม้ปัจจุบันกลุ่มจะสร้าง `cs223-router` และเชื่อมต่อเข้ากับ `cs223-private-subnet` (`10.10.10.1`) จน Guest VM สามารถ Ping ถึงขา Router ภายในได้สำเร็จแล้ว แต่ **การมี Router ภายในไม่เท่ากับการมีเส้นทางออกอินเทอร์เน็ต** เนื่องจาก `cs223-router` ยังไม่ได้ผูก External Gateway ที่เชื่อมกับเครือข่ายภายนอกจริง (`dummy0` เป็นเพียง Interface จำลอง)
 
-ดังนั้นยังไม่ควรอ้างว่า Guest VM สามารถออกอินเทอร์เน็ตหรือเข้าถึงผ่าน Floating IP ได้ แม้ Interface ของ VM จะเป็น `UP` และได้รับ IP แล้วก็ตาม
+ดังนั้นจึงยังไม่สามารถอ้างว่า Guest VM สามารถออกอินเทอร์เน็ต (`ping 8.8.8.8`) หรือเข้าถึงผ่าน Floating IP จากภายนอกได้
 
 ### 5.5 External Interface: `dummy0` และ `br-ex`
 
