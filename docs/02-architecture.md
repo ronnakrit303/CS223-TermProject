@@ -52,26 +52,29 @@
 |---|---|---|
 | **Layer 0 — Host/Lab Infrastructure** | OpenStack ภายนอกของมหาวิทยาลัย | จัดสรร Ubuntu VMs, เครือข่าย `localnet1` และ Floating IP สำหรับเชื่อมต่อเข้าสู่ VM ของทีม |
 | **Layer 1 — Student OpenStack Cloud** | OpenStack 2026.1 + Kolla Ansible | ให้บริการ Keystone, Nova, Neutron, Glance, Placement, Horizon และบริการพื้นฐานอื่น ๆ บน `controller01`/`compute01` |
-| **Layer 2 — Guest Workload** | `cs223-test-vm` (CirrOS) | VM ที่สร้างผ่าน OpenStack ของทีม โดยทำงานบน Hypervisor ของ `compute01` |
+| **Layer 2 — Guest Workload** | `cs223-test-vm` & `cs223-vm-2` (CirrOS) | VMs ที่สร้างผ่าน OpenStack ของทีมบน 2 เครือข่ายเสมือน (`10.10.10.117` + Floating IP `172.24.4.122`, และ `10.20.20.78`) ทำงานบน Hypervisor ของ `compute01` |
 
 ### 2.1 Layered Deployment Diagram
 
 ```mermaid
 flowchart TB
     USER["ผู้ใช้งานบน Windows / WSL"]
+    INET["Internet (8.8.8.8)<br/>ผ่าน NAT บน controller01"]
 
     subgraph OUTER["Layer 0 — University OpenStack / Lab Infrastructure"]
         NET["localnet1 — 192.168.1.0/24<br/>Underlay MTU 1450"]
 
         subgraph INNER["Layer 1 — Student OpenStack 2026.1"]
-            CTRL["controller01<br/>192.168.1.160<br/>Control + Network + Deployment"]
+            CTRL["controller01<br/>192.168.1.160<br/>Control + Network + br-ex NAT (172.24.4.1)"]
             COMP["compute01<br/>192.168.1.7<br/>Compute + Libvirt + Open vSwitch"]
             CTRL <-->|"Management, API, RPC<br/>และ VXLAN Tunnel ผ่าน ens3"| COMP
 
-            subgraph GUEST["Layer 2 — Guest VM"]
-                VM["cs223-test-vm<br/>CirrOS 0.6.3<br/>10.10.10.117/24"]
+            subgraph GUEST["Layer 2 — Guest VMs"]
+                VM1["cs223-test-vm (cs223-private-net)<br/>10.10.10.117/24 · FIP: 172.24.4.122"]
+                VM2["cs223-vm-2 (cs223-net-2)<br/>10.20.20.78/24 · Key: cs223-key"]
             end
-            COMP --> VM
+            COMP --> VM1
+            COMP --> VM2
         end
 
         NET --- CTRL
@@ -79,9 +82,10 @@ flowchart TB
     end
 
     USER -->|"SSH ผ่าน Floating IP ของ Lab<br/>และ Local Port Forwarding"| CTRL
+    CTRL -->|"iptables MASQUERADE (ens3)"| INET
 ```
 
-**หมายเหตุการอ่านแผนภาพ:** เส้นทางจาก Windows ไปยัง Controller เป็นการเข้าถึง **Ubuntu VM บน OpenStack ชั้นนอก** แล้วจึงใช้งานบริการของ OpenStack ที่ทีมติดตั้งภายในอีกชั้นหนึ่ง ไม่ใช่ Floating IP ของ Guest VM `cs223-test-vm` และแผนภาพนี้ไม่ใช่รายละเอียด Packet Path ระดับทุก Interface
+**หมายเหตุการอ่านแผนภาพ:** เส้นทางจาก Windows ไปยัง Controller เป็นการเข้าถึง **Ubuntu VM บน OpenStack ชั้นนอก** เพื่อเปิด Horizon/CLI/SSH แล้วจึงใช้งาน Guest VM (`cs223-test-vm` และ `cs223-vm-2`) ที่อยู่ภายในอีกชั้นหนึ่ง ส่วน Floating IP `172.24.4.122` และ `ext-net` (`172.24.4.0/24`) ใช้สำหรับโครงข่ายภายในของ Inner OpenStack ซึ่งออกอินเทอร์เน็ตผ่าน NAT บน `controller01` (`br-ex` → `ens3`)
 
 ### 2.2 เหตุผลที่ใช้สอง Nodes
 
@@ -247,90 +251,81 @@ flowchart LR
 | Compute Management IP | `192.168.1.7` | Node ที่รัน Hypervisor และ Guest VM |
 | Physical/Outer MTU | `1450` | MTU ของ Underlay `localnet1` ที่ใช้ใน Lab |
 | Network/API/Tunnel Interface | `ens3` | Configuration นี้ใช้ Interface เดียวกันสำหรับ Management/API/VXLAN Tunnel |
-| Tenant Network | `cs223-private-net` | Neutron Network ชนิด `vxlan` |
-| Tenant Subnet | `10.10.10.0/24` | เครือข่าย IPv4 ของ Guest VM |
-| Tenant Network MTU | `1400` | ค่าที่ Neutron รายงานเมื่อสร้าง Network |
-| VXLAN Segmentation ID | `985` | ค่า Network Segment ที่ Neutron จัดสรรในเวลาทดสอบ; ไม่ควรยึดเป็นค่าคงที่เมื่อ Deploy ใหม่ |
-| DHCP Allocation Pool | `10.10.10.100–10.10.10.200` | ช่วง IP ที่กำหนดสำหรับ Ports ใน Tenant Subnet |
-| DHCP Port IP | `10.10.10.100` | IP ของ Port ที่มี `device_owner=network:dhcp` |
-| Guest VM IP (observed) | `10.10.10.117` | IP ที่ VM ได้รับจริง ณ เวลาทดสอบ; อาจเปลี่ยนได้หากสร้าง VM ใหม่ |
-| Subnet Gateway (`cs223-router`) | `10.10.10.1` | เชื่อมต่อ Router `cs223-router` เข้ากับ `cs223-private-subnet` และทดสอบ Ping สำเร็จแล้ว |
-| External Interface (Lab) | `dummy0` | Interface จำลองต่อกับ OVS `br-ex` บน Controller; ไม่ใช่ Uplink สู่อินเทอร์เน็ตที่ทดสอบแล้ว |
+| Tenant Network 1 | `cs223-private-net` | Neutron Network ชนิด `vxlan` (`10.10.10.0/24`, MTU `1400`, DHCP Pool `.100–.200`) |
+| Tenant Network 2 | `cs223-net-2` | Neutron Network ชนิด `vxlan` (`10.20.20.0/24`, MTU `1400`) สำหรับทดสอบ Inter-subnet Routing |
+| External Network | `ext-net` | Flat External Network (`physnet1:br-ex`, Subnet `172.24.4.0/24`, Pool `.100–.200`, Gateway `172.24.4.1`) |
+| Guest VM #1 / Floating IP | `10.10.10.117` / `172.24.4.122` | `cs223-test-vm` (CirrOS 0.6.3) ผูก Security Group `SSH-ICMP` และ Floating IP |
+| Guest VM #2 | `10.20.20.78` | `cs223-vm-2` (CirrOS 0.6.3) บน `cs223-net-2` (Key Pair `cs223-key`, SG `SSH-ICMP`) |
+| Virtual Router (`cs223-router`) | `10.10.10.1`, `10.20.20.1`, `172.24.4.195` | เชื่อม 2 Tenant Subnets และ External Gateway `ext-net` (`enable_snat: true`) |
+| External Interface & NAT | `dummy0` + `br-ex` (`172.24.4.1/24`) | `dummy0` ผูก OVS `br-ex` และตั้ง `172.24.4.1/24` + `ip_forward=1` + `iptables MASQUERADE` ออก `ens3` แบบ Runtime |
 
-### 5.2 Underlay และ VXLAN Overlay
+### 5.2 Underlay, VXLAN Overlay และ Multi-Subnet + External NAT
 
 ```mermaid
 flowchart LR
     subgraph UNDERLAY["Underlay Network — 192.168.1.0/24 · MTU 1450"]
-        C["controller01<br/>ens3: 192.168.1.160<br/>OVS / Neutron DHCP / L3 Router"]
+        C["controller01<br/>ens3: 192.168.1.160<br/>br-ex: 172.24.4.1/24 (NAT out ens3)"]
         N["compute01<br/>ens3: 192.168.1.7<br/>OVS / nova-compute"]
         C <-->|"IP Transport for VXLAN"| N
     end
 
-    subgraph TENANT["Tenant VXLAN Overlay — cs223-private-net · MTU 1400"]
-        D["DHCP Port<br/>10.10.10.100"]
-        R["Router Interface<br/>cs223-router: 10.10.10.1"]
-        V["VM eth0<br/>10.10.10.117/24"]
-        D <-.->|"Virtual L2 Network"| V
-        R <-.->|"ICMP Ping OK"| V
+    subgraph TENANT["Tenant VXLAN Overlays — MTU 1400 & ext-net (172.24.4.0/24)"]
+        EXT["ext-net Gateway<br/>172.24.4.1 (br-ex)"]
+        R["cs223-router<br/>ext: 172.24.4.195<br/>gw1: 10.10.10.1 · gw2: 10.20.20.1"]
+        V1["cs223-test-vm (cs223-private-net)<br/>10.10.10.117 · FIP: 172.24.4.122"]
+        V2["cs223-vm-2 (cs223-net-2)<br/>10.20.20.78/24"]
+        EXT <-->|"SNAT / FIP 172.24.4.122<br/>ping 8.8.8.8 OK"| R
+        R <-->|"VXLAN + SSH/ICMP OK"| V1
+        R <-->|"Inter-Subnet Routing<br/>ssh 10.20.20.78 OK"| V2
     end
 
-    C --- D
+    C --- EXT
     C --- R
-    N --- V
+    N --- V1
+    N --- V2
 ```
 
 หลักการทำงาน:
 
 1. `ens3` บนทั้งสอง Nodes ใช้ Underlay Network เดียวกัน จึงรองรับการส่ง Traffic ระหว่าง Nodes
-2. Open vSwitch สร้างเส้นทาง Virtual Switching สำหรับ Neutron Tenant Network ชนิด VXLAN
-3. VXLAN ห่อหุ้ม Ethernet Frame จากเครือข่าย Tenant ให้ส่งผ่าน Underlay IP Network ได้
-4. Tenant Network มี MTU ที่น้อยกว่า Underlay เพื่อเผื่อ Header ของ Tunnel; ในผลทดสอบ MTU เป็น **1450 → 1400**
-5. DHCP Service และ Router (`cs223-router`) อยู่บน Controller ขณะที่ Guest VM อยู่บน Compute แต่สื่อสารกันข้ามโฮสต์ผ่าน VXLAN Overlay ได้จริง (ยืนยันด้วย `ping 10.10.10.100` และ `ping 10.10.10.1` ได้ `0% packet loss`)
+2. Open vSwitch สร้างเส้นทาง Virtual Switching สำหรับ Neutron Tenant Network ชนิด VXLAN ทั้ง `cs223-private-net` และ `cs223-net-2`
+3. VXLAN ห่อหุ้ม Ethernet Frame จากเครือข่าย Tenant ให้ส่งผ่าน Underlay IP Network ได้ โดยมี MTU **1450 → 1400**
+4. `cs223-router` บน `controller01` เชื่อมต่อทั้งสอง Tenant Subnets (`10.10.10.1` และ `10.20.20.1`) จึงทำหน้าที่ Route ระหว่าง `cs223-test-vm` และ `cs223-vm-2` ได้จริง (`ssh cirros@10.20.20.78` สำเร็จ)
+5. ขา External Gateway ของ `cs223-router` (`172.24.4.195`) เชื่อมผ่าน Flat Network `ext-net` ไปยัง `br-ex` (`172.24.4.1/24`) บน `controller01` แล้วทำ NAT (`MASQUERADE`) ออกทาง `ens3` ทำให้ `cs223-test-vm` (FIP `172.24.4.122`) ออกอินเทอร์เน็ต (`ping -c 4 8.8.8.8`, `0% packet loss`) และรับ `ssh cirros@172.24.4.122` จาก `controller01` ได้จริง
 
-**ข้อจำกัด:** การตรวจสอบแสดงว่า VM รับ DHCP Lease และ Ping ข้ามโฮสต์ถึง DHCP/Router Gateway บน Controller ได้สำเร็จ แต่ **ยังไม่ได้ทดสอบ Throughput, MTU Path ภายใต้ Packet Size หลายระดับ, East–West Traffic ระหว่าง VM หลายเครื่อง หรือ External Internet Egress**
+**ข้อจำกัด:** ค่า IP `172.24.4.1/24` บน `br-ex` และกฎ `iptables MASQUERADE` / `FORWARD` เป็นค่า Runtime บน `controller01` (ไม่ถาวรหาก Host รีบูต) และผลทดสอบเป็นการพิสูจน์ Connectivity (ไม่ใช่ Throughput/Load Benchmark)
 
 ### 5.3 Neutron Network Objects ที่สร้างไว้
 
 ```mermaid
 flowchart TB
-    NW["Network: cs223-private-net<br/>Type: VXLAN · Status: ACTIVE"]
-    SUB["Subnet: cs223-private-subnet<br/>10.10.10.0/24 · DHCP enabled"]
-    DPORT["DHCP Port<br/>10.10.10.100<br/>device_owner: network:dhcp"]
-    RTR["Router: cs223-router<br/>Status: ACTIVE · Interface: 10.10.10.1"]
-    VPORT["Instance Port<br/>10.10.10.117 · SG: SSH-ICMP"]
-    VM["cs223-test-vm<br/>ACTIVE on compute01"]
+    EXT["External Network: ext-net<br/>Flat (physnet1:br-ex) · 172.24.4.0/24"]
+    RTR["Router: cs223-router<br/>ACTIVE · SNAT: true · ext: 172.24.4.195"]
+    NW1["Network 1: cs223-private-net<br/>VXLAN · 10.10.10.0/24 · DHCP .100-.200"]
+    NW2["Network 2: cs223-net-2<br/>VXLAN · 10.20.20.0/24"]
+    VM1["cs223-test-vm<br/>10.10.10.117 · FIP: 172.24.4.122<br/>SG: SSH-ICMP"]
+    VM2["cs223-vm-2<br/>10.20.20.78 · Key: cs223-key<br/>SG: SSH-ICMP"]
 
-    NW --> SUB
-    SUB --> DPORT
-    SUB --> RTR
-    SUB --> VPORT --> VM
+    EXT -->|"Gateway"| RTR
+    RTR -->|"10.10.10.1"| NW1 --> VM1
+    RTR -->|"10.20.20.1"| NW2 --> VM2
 ```
 
-- `cs223-private-net` สร้างเป็น **Internal Network** ไม่ใช่ External Provider Network
-- `cs223-private-subnet` เปิด DHCP และกำหนด Pool `10.10.10.100–10.10.10.200`
-- DHCP Port (`10.10.10.100`) และ Router Interface (`10.10.10.1` ของ `cs223-router`) มีสถานะ `ACTIVE`
-- Test VM (`cs223-test-vm`) ผูก Security Group `SSH-ICMP`, ได้รับ IPv4 `10.10.10.117/24` และ Ping ถึง `10.10.10.100` กับ `10.10.10.1` สำเร็จ
-- **ยังไม่มี External Network Uplink, Floating IP หรือ Internet Egress สำหรับ Guest VM ที่ใช้งานได้จริง**
+- `ext-net` สร้างเป็น **External Flat Network** บน `physnet1:br-ex` (`172.24.4.0/24`, Pool `172.24.4.100–172.24.4.200`, Gateway `172.24.4.1`)
+- `cs223-private-net` (`10.10.10.0/24`) และ `cs223-net-2` (`10.20.20.0/24`) เป็น **Internal VXLAN Networks** (MTU `1400`) ที่เชื่อมผ่าน `cs223-router`
+- Floating IP `172.24.4.122` ผูกเข้ากับพอร์ตของ `cs223-test-vm` (`10.10.10.117`) สถานะ `ACTIVE` ทั้งหมด
 
-### 5.4 ทำไมมี Router แล้วแต่ยังออกอินเทอร์เน็ตไม่ได้?
+### 5.4 สถาปัตยกรรม `dummy0`, `br-ex` และ Runtime NAT บน `controller01`
 
-แม้ปัจจุบันกลุ่มจะสร้าง `cs223-router` และเชื่อมต่อเข้ากับ `cs223-private-subnet` (`10.10.10.1`) จน Guest VM สามารถ Ping ถึงขา Router ภายในได้สำเร็จแล้ว แต่ **การมี Router ภายในไม่เท่ากับการมีเส้นทางออกอินเทอร์เน็ต** เนื่องจาก `cs223-router` ยังไม่ได้ผูก External Gateway ที่เชื่อมกับเครือข่ายภายนอกจริง (`dummy0` เป็นเพียง Interface จำลอง)
-
-ดังนั้นจึงยังไม่สามารถอ้างว่า Guest VM สามารถออกอินเทอร์เน็ต (`ping 8.8.8.8`) หรือเข้าถึงผ่าน Floating IP จากภายนอกได้
-
-### 5.5 External Interface: `dummy0` และ `br-ex`
-
-ฝั่ง `controller01` ใช้ `neutron_external_interface: "dummy0"` และ Kolla สร้าง/ผูก OVS Bridge `br-ex` กับ Interface ดังกล่าวเพื่อรองรับ Configuration ของ Neutron ในสภาพแวดล้อม Lab
+ฝั่ง `controller01` ตั้งค่า `neutron_external_interface: "dummy0"` ใน Kolla เพื่อสร้าง OVS Bridge `br-ex` โดยไม่ดึง `ens3` (ที่ใช้ Management/SSH) เข้ามาใน Bridge; จากนั้นเมื่อสร้าง `ext-net` บน `physnet1:br-ex` ได้กำหนด IP Gateway `172.24.4.1/24` ให้ Interface ภายใน `br-ex` เปิด `net.ipv4.ip_forward=1` และเพิ่มกฎ `iptables` (`POSTROUTING MASQUERADE` และ `FORWARD` ระหว่าง `br-ex` ↔ `ens3`) แบบ Runtime
 
 ```mermaid
 flowchart LR
-    L3["Neutron L3 Agent<br/>controller01"] -.-> B["OVS Bridge: br-ex"]
-    B --- D["dummy0<br/>Virtual/Dummy Interface"]
-    D -.- X["No verified physical uplink<br/>No validated Internet path"]
+    L3["Neutron L3 / qrouter<br/>172.24.4.195 & FIP 172.24.4.122"] --> B["OVS Bridge: br-ex<br/>IP: 172.24.4.1/24 (dummy0 slave)"]
+    B -->|"ip_forward=1 +<br/>iptables MASQUERADE"| E["ens3 (192.168.1.160)"] --> INET["Internet (8.8.8.8 OK)"]
 ```
 
-เส้นประและข้อความท้ายแผนภาพหมายถึง **ข้อจำกัดของระบบ** ไม่ได้หมายความว่าต่อออกอินเทอร์เน็ตสำเร็จแล้ว ทั้งนี้การเปลี่ยนจาก `dummy0` เป็น Interface จริงควรทำเฉพาะเมื่อมีแผน IP, Routing และสิทธิ์ในเครือข่ายของมหาวิทยาลัยที่ชัดเจน
+วิธีนี้ช่วยให้ Guest VM ใช้ Floating IP และ `ping 8.8.8.8` ได้จริงโดยยังคงความปลอดภัยของ SSH Management บน `ens3`; ทั้งนี้หาก `controller01` รีบูตจะต้องรันคำสั่งตั้ง IP บน `br-ex` และ `iptables` ใหม่ (หรือทำให้ถาวรด้วย Netplan/iptables-persistent หากต้องการใช้ระยะยาว)
 
 ---
 
@@ -580,7 +575,7 @@ ssh -i ~/.ssh/<SSH_PRIVATE_KEY> \
 | HAProxy / Keepalived | ปิดสำหรับสภาพแวดล้อม Non-HA นี้ |
 | ProxySQL | Container/Service ที่เหลือจาก Deploy ครั้งแรกถูกหยุด; ไม่ได้ใช้เป็น SQL Proxy ในผลการทดสอบที่สำเร็จ |
 | Internal VIP | ตั้งเป็น IP จริงของ `controller01` (`192.168.1.160`), ไม่ได้ใช้ Floating VIP สำหรับ Failover |
-| External Uplink | `dummy0` ไม่ได้ทดสอบการเข้าถึงเครือข่ายภายนอกของ Guest |
+| External Uplink | `dummy0` + `br-ex` (`172.24.4.1/24`) + `iptables MASQUERADE` แบบ Runtime ออก `ens3` (ไม่ถาวรหาก Host รีบูต) |
 | Persistent Storage / DR | ยังไม่ได้ทดสอบ Backup/Restore หรือ Disaster Recovery |
 
 ### 10.2 ปัญหาที่เคยพบ: MariaDB vs ProxySQL
@@ -605,29 +600,28 @@ ssh -i ~/.ssh/<SSH_PRIVATE_KEY> \
 ### 10.4 รายการที่ยังไม่อยู่ในผลการทดสอบ
 
 - HA/Failover ระหว่าง Controllers
-- Guest Internet Egress, NAT และ Neutron Router ที่ส่ง Packet ได้จริง
-- Floating IP ของ **Guest VM** (แยกจาก Outer Floating IP สำหรับ SSH)
-- East–West Connectivity ระหว่าง Guest VMs หลายเครื่อง
+- การบันทึกค่า Host NAT (`br-ex` IP และ `iptables`) แบบถาวรข้ามการ Reboot (`controller01`)
 - KVM Acceleration Benchmark / Performance Benchmark
-- Auto Recovery หลัง Host Reboot, Migration, Backup/Restore
+- Auto Recovery หลัง Host Reboot, Live Migration, Backup/Restore
 - Security Hardening สำหรับ Production
 
 ---
 
 ## 11. หลักฐานที่ยืนยันสถาปัตยกรรม
 
-รายการต่อไปนี้เป็น **Evidence Plan** เพื่อให้ผู้รับผิดชอบเอกสารนำ Screenshot ที่มีอยู่จากการทดสอบจริงไปใส่ใน `evidence/` และเชื่อมกับข้ออ้างในเอกสาร ไม่ควรตีความว่าไฟล์ภาพมีอยู่แล้วจนกว่าจะเพิ่มไฟล์จริงลง Repository
+รายการต่อไปนี้เป็นหลักฐานจริงที่จัดเก็บไว้ในโฟลเดอร์ `evidence/` แล้ว:
 
-| ประเด็น | ผลการทดสอบจริง | ตำแหน่งหลักฐานที่วางแผนไว้ |
+| ประเด็น | ผลการทดสอบจริง | ตำแหน่งหลักฐานใน Repo |
 |---|---|---|
 | Kolla Deploy | `failed=0`, Exit Status `0` | [`02-deploy-recap.png`](../evidence/01-deployment/02-deploy-recap.png) |
 | Container Health | Services หลักบน Controller/Compute รันปกติ | [`01-controller-containers.png`](../evidence/02-services/01-controller-containers.png), [`02-compute-containers.png`](../evidence/02-services/02-compute-containers.png) |
 | Nova Integration | Scheduler, Conductor และ Compute = `enabled/up` | [`03-nova-services.png`](../evidence/02-services/03-nova-services.png) |
 | Neutron Agent Registration | Agents 5 ตัว = `Alive :-)`, `UP` | [`04-neutron-agents.png`](../evidence/02-services/04-neutron-agents.png) |
-| VM Provisioning | `cs223-test-vm` = `ACTIVE` บน `compute01` | [`01-instance-active.png`](../evidence/03-vm-validation/01-instance-active.png) |
-| noVNC Guest Access | Boot และ Login เข้า CirrOS ได้ | [`02-cirros-console.png`](../evidence/03-vm-validation/02-cirros-console.png) |
-| DHCP / Guest IP | `eth0=10.10.10.117/24`, MTU 1400 | [`03-cirros-network.png`](../evidence/03-vm-validation/03-cirros-network.png) |
-| Horizon | Admin Login และ Project Overview แสดงผล | [`01-horizon-dashboard.png`](../evidence/04-horizon/01-horizon-dashboard.png) |
+| VM Provisioning | `cs223-test-vm` & `cs223-vm-2` = `ACTIVE` บน `compute01` | [`01-instance-active.png`](../evidence/03-vm-validation/01-instance-active.png), [`11-horizon-instances-multi.png`](../evidence/04-horizon/11-horizon-instances-multi.png) |
+| noVNC & DHCP | Boot CirrOS, `eth0=10.10.10.117/24`, MTU 1400 | [`02-cirros-console.png`](../evidence/03-vm-validation/02-cirros-console.png), [`03-cirros-network.png`](../evidence/03-vm-validation/03-cirros-network.png) |
+| Inter-Subnet Routing | `cs223-test-vm` `ssh` ข้าม `cs223-router` ไป `cs223-vm-2` (`10.20.20.78`) | [`06-vm-ssh-inter-subnet.png`](../evidence/03-vm-validation/06-vm-ssh-inter-subnet.png), [`09-horizon-network-topology-ext.png`](../evidence/04-horizon/09-horizon-network-topology-ext.png) |
+| External NAT, FIP & Internet | `br-ex` NAT, `ssh cirros@172.24.4.122`, `ping 8.8.8.8` (`0% loss`) | [`07-controller-br-ex-nat-floating-ip-ssh.jpg`](../evidence/03-vm-validation/07-controller-br-ex-nat-floating-ip-ssh.jpg), [`08-vm-ping-internet.png`](../evidence/03-vm-validation/08-vm-ping-internet.png), [`10-horizon-floating-ips.png`](../evidence/04-horizon/10-horizon-floating-ips.png) |
+| Horizon & CLI Summary | ครบ 3 เครือข่าย, Router 3 Interfaces, FIP, 2 VMs | [`01-horizon-dashboard.png`](../evidence/04-horizon/01-horizon-dashboard.png), [`09-cli-multi-network-floating-ip.png`](../evidence/03-vm-validation/09-cli-multi-network-floating-ip.png) |
 
 **ข้อควรระวังภาพหลักฐาน:** ปิดบัง URL ที่มี noVNC Token, รหัสผ่านใน Terminal, Cookie, Authorization Headers และข้อมูลส่วนตัวก่อน Commit
 
@@ -714,4 +708,4 @@ ssh -i ~/.ssh/<SSH_PRIVATE_KEY> \
 
 ---
 
-**สรุปสถาปัตยกรรม:** ระบบนี้เป็น OpenStack 2026.1 แบบ **Two-Node, Non-HA Lab** โดยใช้ `controller01` เป็น Control/Network/Deployment Node และ `compute01` เป็น Compute Node สำหรับรัน Guest VM ผ่าน Libvirt/QEMU/KVM ใช้ Management/Underlay เดียวกับ VXLAN Tunnel (`ens3`) และมี Tenant Network `10.10.10.0/24` ที่แจก IP ผ่าน Neutron DHCP ได้จริง ขณะที่ External Uplink, Floating IP ของ Guest, HA และ Production Hardening **ยังไม่ได้ทดสอบ**
+**สรุปสถาปัตยกรรม:** ระบบนี้เป็น OpenStack 2026.1 แบบ **Two-Node, Non-HA Lab** โดยใช้ `controller01` เป็น Control/Network/Deployment Node และ `compute01` เป็น Compute Node สำหรับรัน Guest VM ผ่าน Libvirt/QEMU/KVM ใช้ Management/Underlay เดียวกับ VXLAN Tunnel (`ens3`), มี Tenant Networks `cs223-private-net` (`10.10.10.0/24`) และ `cs223-net-2` (`10.20.20.0/24`) ที่เชื่อมต่อกันผ่าน `cs223-router` และตั้งค่า External Network (`ext-net` `172.24.4.0/24` บน `br-ex` + Runtime NAT ออก `ens3`) ทำให้ทดสอบ Floating IP (`172.24.4.122`), `ssh` ข้าม Subnet/จากภายนอก และ `ping 8.8.8.8` ได้สำเร็จครบถ้วน ขณะที่ HA, Persistent Host NAT ข้าม Reboot, Cinder/Heat และ Production Hardening ยังอยู่นอกขอบเขตการทดลอง

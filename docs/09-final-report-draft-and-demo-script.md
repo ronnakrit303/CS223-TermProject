@@ -24,8 +24,8 @@
    - โชว์ตามลำดับตำราบทที่ ๑ ของอาจารย์:
      1) อธิบายการจัดการสิทธิ์ด้วย RBAC **`(User, Role, Scope)` Tuple** และการสร้าง `Project-A`, ผู้ใช้ `A-user` (Role `member` ใน `Project-scope`) พร้อมการปรับ **Quota**
      2) โชว์การล็อกอินด้วย `A-user` (ที่จะไม่เห็นแท็บ `Admin` บนซ้ายมือ ต่างจากบัญชี `admin` ที่มีทั้ง `System-scope` และ `Project-scope`)
-     3) โชว์การสร้าง Security Group `SSH-ICMP`, เครือข่ายเสมือน `cs223-private-net`, เร้าเตอร์ `cs223-router` และสร้าง VM `cs223-test-vm` โดยเลือก **`Create New Volume = No`** (ใช้ดิสก์ของ Compute Host `compute01`)
-     4) โชว์หน้าจอ Console ของ CirrOS ที่ได้รับ IP `10.10.10.117/24` (`mtu 1400`) จาก DHCP ข้ามเครื่อง
+     3) โชว์การสร้าง Security Group `SSH-ICMP`, เครือข่ายเสมือน `cs223-private-net` + `cs223-net-2`, เร้าเตอร์ `cs223-router`, External Network `ext-net`, Floating IP `172.24.4.122` และสร้าง VM (`cs223-test-vm`, `cs223-vm-2`) โดยเลือก **`Create New Volume = No`** (ใช้ดิสก์ของ Compute Host `compute01`)
+     4) โชว์หน้าจอ Console ของ CirrOS ที่ได้รับ IP `10.10.10.117/24` (`mtu 1400`), `ssh` ข้าม Subnet ไป `cs223-vm-2` (`10.20.20.78`), `ssh cirros@172.24.4.122` และ `ping -c 4 8.8.8.8` (`0% packet loss`) สำเร็จ!
 
 ---
 
@@ -77,7 +77,7 @@
 ระบบ OpenStack ของกลุ่มได้รับการติดตั้งอยู่ภายใน Virtual Machines จำนวน 2 เครื่องที่สร้างขึ้นบนระบบ OpenStack ของรายวิชาอีกชั้นหนึ่ง (Nested Virtualization) จึงต้องแยกความหมายของระบบคลาวด์ออกเป็น 3 ชั้นอย่างชัดเจน ได้แก่:
 * **ชั้นที่ 0 — Outer Cloud (OpenStack ของรายวิชา):** ทำหน้าที่จัดสรร Host VMs จำนวน 2 เครื่อง (`controller01` และ `compute01`) เชื่อมต่อกันผ่านเครือข่าย `localnet1` (`192.168.1.0/24`, MTU `1450`)
 * **ชั้นที่ 1 — Inner Cloud (OpenStack 2026.1 ของกลุ่ม `grp25`):** ติดตั้งด้วย Kolla Ansible (`22.2.1.dev36`) แยกบทบาท Control/Network Plane ไว้ที่ `controller01` และแยก Compute/Hypervisor Plane ไปไว้ที่ `compute01`
-* **ชั้นที่ 2 — Guest Workload:** เครื่องเสมือนทดสอบ (`cs223-test-vm` รันเกสต์โอเอส CirrOS 0.6.3) ที่สร้างขึ้นภายใน Inner Cloud และประมวลผลจริงบน Hypervisor ของ `compute01`
+* **ชั้นที่ 2 — Guest Workload:** เครื่องเสมือนทดสอบที่สร้างขึ้นภายใน Inner Cloud และประมวลผลจริงบน Hypervisor ของ `compute01` ได้แก่ `cs223-test-vm` (`10.10.10.117`, Floating IP `172.24.4.122`) และ `cs223-vm-2` (`10.20.20.78`) รันเกสต์โอเอส CirrOS 0.6.3
 
 *(แทรกแผนภาพสถาปัตยกรรมจาก `docs/02-architecture.md`)*
 
@@ -96,7 +96,7 @@
 เพื่อให้ระบบ OpenStack ชั้นในทำงานร่วมกับข้อจำกัดของ OpenStack ชั้นนอกได้โดยไม่เกิดปัญหา กลุ่มได้ออกแบบและกำหนดค่าใน `/etc/kolla/globals.yml` ดังนี้:
 1. **การแยกพื้นที่เก็บข้อมูล Docker (`/var/lib/docker`):** เนื่องจาก Root Disk ของ Flavor มาตรฐานมีขนาดจำกัด จึงสร้าง Volume ขนาด 40 GB แยกต่างหากและนำไป Mount ที่ `/var/lib/docker` บนทั้งสองเครื่อง เพื่อรองรับขนาดของ Kolla Container Images
 2. **การกำหนด Internal VIP แบบ Single-Controller Non-HA:** บนเครือข่ายของ Outer OpenStack มีกลไก Port Security (Anti-spoofing) ที่อาจบล็อก Virtual IP (VIP) แปลกปลอมจาก Keepalived กลุ่มจึงกำหนด `kolla_internal_vip_address: "192.168.1.160"` ให้ใช้ IP จริงของ `controller01` โดยตรง และตั้งค่าปิด `enable_haproxy: false`, `enable_keepalived: false`, `enable_loadbalancer: false` และ `enable_proxysql: false`
-3. **การใช้อินเทอร์เฟซจำลอง `dummy0` สำหรับ `br-ex`:** กำหนด `neutron_external_interface: "dummy0"` บน `controller01` เพื่อให้ Open vSwitch สร้างบริดจ์ `br-ex` ได้โดยไม่ดึงพอร์ต `ens3` (ที่ใช้รีโมต SSH และจัดการระบบ) เข้าไปอยู่ในบริดจ์
+3. **การใช้อินเทอร์เฟซจำลอง `dummy0` สำหรับ `br-ex` ร่วมกับ Runtime NAT:** กำหนด `neutron_external_interface: "dummy0"` บน `controller01` เพื่อให้ Open vSwitch สร้างบริดจ์ `br-ex` ได้โดยไม่ดึงพอร์ต `ens3` (ที่ใช้รีโมต SSH และจัดการระบบ) เข้าไปอยู่ในบริดจ์ และเมื่อสร้าง External Network (`ext-net` `172.24.4.0/24` ชนิด Flat บน `physnet1:br-ex`) ได้กำหนด IP `172.24.4.1/24` ให้ Interface ภายใน `br-ex` พร้อมเปิด `ip_forward=1` และ `iptables MASQUERADE` ออกทาง `ens3` แบบ Runtime ทำให้ Guest VM ใช้ Floating IP และออกอินเทอร์เน็ตได้จริงโดยไม่กระทบการเชื่อม SSH ของทีม
 4. **การปรับค่า MTU สำหรับเครือข่าย VXLAN (`1450 -> 1400`):** เนื่องจากพอร์ต `ens3` บน Outer Cloud มีค่า MTU เท่ากับ `1450` bytes กลุ่มจึงสร้างไฟล์ Override `/etc/kolla/config/neutron/neutron.conf` (`global_physnet_mtu = 1450`) และ `/etc/kolla/config/neutron/ml2_conf.ini` (`path_mtu = 1450`) เพื่อให้ Neutron หักลบ VXLAN Header (50 bytes) และกำหนดค่า MTU ของเครือข่ายเสมือนภายในเป็น **`1400` bytes** อัตโนมัติ
 5. **การเลือกใช้ Local Storage ของ Compute Host แทน Cinder Volume:** ตั้งค่า `enable_cinder: false` และ `enable_heat: false` ตามขอบเขตพื้นฐาน โดยเมื่อสร้าง VM จะกำหนด `Create New Volume = No` เพื่อให้ Nova เก็บ Boot Image ลงบนดิสก์ของ `compute01` โดยตรง
 
@@ -133,27 +133,34 @@
 กลุ่มได้ทดสอบการเตรียมทรัพยากรพื้นฐานทั้งผ่าน Horizon Dashboard และ OpenStack CLI ดังนี้:
 1. **การเพิ่ม Image ใน Glance (บทที่ ๑.2.6 & ๑.3.4):** อัปโหลดไฟล์อิมเมจของเกสต์โอเอส CirrOS 0.6.3 (`qcow2`) เข้าสู่ Glance ในชื่อ `cirros-0.6.3` กำหนด Visibility เป็น `Public` และตรวจสอบว่ามีสถานะเป็น `active`
 2. **การเพิ่ม Flavor (บทที่ ๑.2.7 & ๑.3.4):** สร้างข้อกำหนดสเปกของวีเอ็มชื่อ `cs223.tiny` กำหนดค่า `VCPUs = 1`, `RAM = 512 MB` และ `Root Disk = 1 GB`
-3. **การสร้างเครือข่ายเสมือนภายในและเร้าเตอร์เสมือน (บทที่ ๑.2.12 – ๑.2.13 & ๑.3.6 – ๑.3.7):**
-   - สร้างเครือข่ายเสมือนภายในชื่อ `cs223-private-net` (ชนิด `vxlan`, VNI `985`, MTU `1400`) พร้อมซับเน็ต `cs223-private-subnet` (`10.10.10.0/24`, Gateway `10.10.10.1`, เปิดใช้ DHCP ช่วง `10.10.10.100–10.10.10.200`)
-   - สร้างเร้าเตอร์เสมือนชื่อ `cs223-router` และเชื่อมต่ออินเทอร์เฟซเข้ากับ `cs223-private-subnet` ทำให้ขาเกตเวย์ `10.10.10.1` พร้อมทำงานและแสดงผังการเชื่อมต่อในหน้า **Network Topology**
+3. **การสร้างเครือข่ายเสมือนภายใน, เครือข่ายภายนอก และเร้าเตอร์เสมือน (บทที่ ๑.2.12 – ๑.2.13, ๑.2.15 & ๑.3.6 – ๑.3.7):**
+   - สร้างเครือข่ายเสมือนภายในวงที่ 1 ชื่อ `cs223-private-net` (ชนิด `vxlan`, MTU `1400`) พร้อมซับเน็ต `cs223-private-subnet` (`10.10.10.0/24`, Gateway `10.10.10.1`, DHCP Pool `10.10.10.100–10.10.10.200`)
+   - สร้างเครือข่ายเสมือนภายในวงที่ 2 ชื่อ `cs223-net-2` (ชนิด `vxlan`, MTU `1400`) พร้อมซับเน็ต `cs223-subnet-2` (`10.20.20.0/24`, Gateway `10.20.20.1`) เพื่อทดสอบการเชื่อมต่อข้ามเครือข่าย
+   - สร้างเครือข่ายภายนอกชื่อ `ext-net` (ชนิด `flat`, Physical Network `physnet1` เชื่อม `br-ex`) พร้อมซับเน็ต `ext-subnet` (`172.24.4.0/24`, Pool `172.24.4.100–172.24.4.200`, Gateway `172.24.4.1`)
+   - สร้างเร้าเตอร์เสมือนชื่อ `cs223-router` เชื่อมต่อครบทั้ง 3 ขา (`10.10.10.1`, `10.20.20.1` และ External Gateway `172.24.4.195` แบบ `enable_snat: true`) แสดงผังครบถ้วนในหน้า **Network Topology**
 4. **การสร้างกลุ่มกฎรักษาความปลอดภัย `SSH-ICMP` และคู่คีย์ (บทที่ ๑.2.4 & ๑.2.9):**
    - เนื่องจาก `default` security group อนุญาตเฉพาะทราฟฟิกขาออกจากวีเอ็ม จึงได้สร้างกลุ่มกฎรักษาความปลอดภัยใหม่ชื่อ `SSH-ICMP` เพิ่มกฎอนุญาตทราฟฟิกขาเข้าแบบ `ALL ICMP` (สำหรับคำสั่ง `ping`) และ `SSH` (TCP พอร์ต 22)
-   - ทดสอบการสร้างคู่คีย์ `cs223-key` ผ่านเมนู **Compute > Key Pairs** และคำสั่ง `openstack keypair create`
+   - ทดสอบการสร้างคู่คีย์ `cs223-key` ผ่านเมนู **Compute > Key Pairs** และคำสั่ง `openstack keypair create` แล้วนำไปใช้สร้าง VM เครื่องที่ 2 (`cs223-vm-2`)
 
-*(แทรกรูปหน้าจอ Images, Flavors, Network Topology และ Security Group Rules `SSH-ICMP`)*
+*(แทรกรูป `evidence/04-horizon/05-horizon-images.png`, `06-horizon-flavors.png`, `07-horizon-networks-ext.png`, `08-horizon-router-interfaces.png`, `09-horizon-network-topology-ext.png`, `02-security-group-ssh-icmp.png` และ `04-key-pairs.png`)*
 
-#### 3.5 การสร้างวีเอ็ม CirrOS, การใช้งานทางคอนโซล และการควบคุมสถานะวีเอ็ม
+#### 3.5 การสร้างวีเอ็ม CirrOS, การใช้งานทางคอนโซล, Virtual Routing และ Floating IP
 1. **การสร้างวีเอ็มโดยใช้ดิสก์บนเครื่อง Compute Host (บทที่ ๑.2.2 ภาพ ๑-21):**
-   - สั่งสร้างวีเอ็มชื่อ `cs223-test-vm` โดยเลือก Boot Source เป็น `Image` (`cirros-0.6.3`), กำหนด **`Create New Volume = No`** (ให้ Nova คัดลอกอิมเมจจาก Glance ไปรันบน Local Storage ของเครื่อง `compute01`), เลือก Flavor `cs223.tiny`, เชื่อมต่อเครือข่าย `cs223-private-net` และผูกกลุ่มกฎไฟร์วอลล์ `SSH-ICMP`
-   - ผลลัพธ์จากการตรวจสอบพบว่า `cs223-test-vm` มีสถานะ **`ACTIVE`** รันอยู่บนโฮสต์ **`compute01`** และได้รับค่า Fixed IP เป็น **`10.10.10.117`**
-2. **การเข้าใช้งานผ่านคอนโซล noVNC และทดสอบเครือข่าย (บทที่ ๑.2.3):**
-   - เปิดหน้าต่างคอนโซลของ `cs223-test-vm` ผ่าน SSH Tunnel พอร์ต `6080` คลิกแถบด้านบนของคอนโซลและล็อกอินด้วยชื่อผู้ใช้ `cirros` และรหัสผ่าน `gocubsgo`
-   - รันคำสั่ง `ip -4 addr show eth0` ภายในเกสต์โอเอส พบว่าอินเทอร์เฟซ `eth0` มีสถานะ `UP, LOWER_UP`, มีค่า **`mtu 1400`** และได้รับไอพี **`10.10.10.117/24`** จาก DHCP Agent บน `controller01` (`10.10.10.100`)
-   - ทดสอบส่งข้อความ ICMP ด้วยคำสั่ง `ping -c 4 10.10.10.100` (DHCP Server) และ `ping -c 4 10.10.10.1` (Router Gateway) พบว่าสามารถสื่อสารข้ามโฮสต์ผ่านอุโมงค์ VXLAN ได้สำเร็จ (`0% packet loss`)
-3. **การทดสอบหยุดและเริ่มการประมวลผลของวีเอ็ม (บทที่ ๑.2.16):**
-   - ทดสอบคำสั่ง **Pause Instance** (พักการประมวลผลโดยคงสถานะไว้ในหน่วยความจำของ `compute01`) และ **Unpause Instance** รวมถึง **Shut Off / Start Instance** พบว่าวีเอ็มเปลี่ยนสถานะและกลับมาทำงานต่อได้อย่างถูกต้อง
+   - สั่งสร้างวีเอ็ม `cs223-test-vm` (เครือข่าย `cs223-private-net`) และ `cs223-vm-2` (เครือข่าย `cs223-net-2`, Key Pair `cs223-key`) โดยเลือก Boot Source เป็น `Image` (`cirros-0.6.3`), กำหนด **`Create New Volume = No`** (ให้ Nova รันบน Local Storage ของเครื่อง `compute01`), เลือก Flavor `cs223.tiny` และผูกกลุ่มกฎไฟร์วอลล์ `SSH-ICMP`
+   - ผลลัพธ์พบว่าทั้ง `cs223-test-vm` (`10.10.10.117`) และ `cs223-vm-2` (`10.20.20.78`) มีสถานะ **`ACTIVE`** รันอยู่บนโฮสต์ **`compute01`**
+2. **การเข้าใช้งานผ่านคอนโซล noVNC และทดสอบเครือข่ายภายใน (บทที่ ๑.2.3):**
+   - เปิดหน้าต่างคอนโซลของ `cs223-test-vm` ผ่าน SSH Tunnel พอร์ต `6080` และล็อกอินด้วย `cirros` / `gocubsgo`
+   - รัน `ip -4 addr show eth0` พบ `UP, LOWER_UP`, ค่า **`mtu 1400`** และได้รับไอพี **`10.10.10.117/24`** จาก DHCP Agent (`10.10.10.100`)
+   - ทดสอบ `ping -c 4 10.10.10.100` (DHCP Server) และ `ping -c 4 10.10.10.1` (Router Gateway) สำเร็จ (`0% packet loss`)
+3. **การทดสอบ Virtual Routing ข้ามวงแลน (Inter-Subnet SSH):**
+   - จากภายใน `cs223-test-vm` (`10.10.10.117`) สั่ง `ssh cirros@10.20.20.78` ข้ามเร้าเตอร์ `cs223-router` ไปยัง `cs223-vm-2` ได้สำเร็จ โดย `hostname` แสดง `cs223-vm-2` และ `eth0` มี IP `10.20.20.78/24`, `mtu 1400`
+4. **การผูก Floating IP (`172.24.4.122`), SSH จากภายนอก และ Internet Egress (บทที่ ๑.2.15):**
+   - จัดสรรและผูก Floating IP `172.24.4.122` จาก `ext-net` เข้ากับ `cs223-test-vm` (`10.10.10.117`) พร้อมตั้งค่า `172.24.4.1/24` บน `br-ex` และ `iptables MASQUERADE` ออกทาง `ens3` บน `controller01`
+   - ทดสอบ `ssh cirros@172.24.4.122` จากเครื่อง `controller01` สามารถเข้าสู่ `cs223-test-vm` ได้โดยตรง และจากภายใน `cs223-test-vm` สั่ง `ping -c 4 8.8.8.8` ออกอินเทอร์เน็ตได้สำเร็จ (`4 packets transmitted, 4 received, 0% packet loss`)
+5. **การทดสอบหยุดและเริ่มการประมวลผลของวีเอ็ม (บทที่ ๑.2.16):**
+   - ทดสอบคำสั่ง **Pause Instance** (สถานะเป็น `Paused`) และ **Unpause Instance** ให้กลับมาเป็น `Active` ได้อย่างถูกต้อง
 
-*(แทรกรูป `evidence/03-vm-validation/01-instance-active.png`, `02-cirros-console.png` และ `03-cirros-network.png`)*
+*(แทรกรูป `evidence/03-vm-validation/01-instance-active.png` ถึง `09-cli-multi-network-floating-ip.png` และ `evidence/04-horizon/10-horizon-floating-ips.png`, `11-horizon-instances-multi.png`)*
 
 ---
 
@@ -170,9 +177,13 @@
 3. **ข้อจำกัดด้านค่า MTU ของเครือข่ายซ้อนทับ (Nested Network MTU 1450):**
    - **อาการ:** เครือข่าย `localnet1` ของ Outer OpenStack มีค่า MTU 1450 bytes ซึ่งต่ำกว่าค่ามาตรฐาน 1500 bytes
    - **วิธีแก้ไข:** ตั้งค่า Override `global_physnet_mtu = 1450` และ `path_mtu = 1450` เพื่อให้เครือข่าย VXLAN ของ Inner OpenStack ใช้ค่า MTU ที่ `1400` bytes ป้องกันปัญหาแพ็กเก็ตสูญหายจากการห่อหุ้มข้อมูลซ้อนกัน
+4. **ปัญหา `Destination Host Unreachable` เมื่อทดสอบ `ping 8.8.8.8` หลังสร้าง External Network (`ext-net`):**
+   - **อาการ:** หลังสร้าง `ext-net` (`172.24.4.0/24`) และต่อเข้า `cs223-router` แล้ว เมื่อสั่ง `ping -c 4 8.8.8.8` จาก `cs223-test-vm` พบข้อความตอบกลับ `From 172.24.4.122 icmp_seq=1 Destination Host Unreachable`
+   - **สาเหตุ:** OVS Bridge `br-ex` บน `controller01` ผูกอยู่กับ `dummy0` จึงยังอยู่ในสถานะ `DOWN` และไม่มี IP Gateway (`172.24.4.1/24`) รวมถึงยังไม่ได้เปิด IP Forwarding และ NAT (`MASQUERADE`) ออกทาง `ens3`
+   - **วิธีแก้ไข:** กำหนด IP `172.24.4.1/24` ให้ `br-ex`, สั่ง `ip link set br-ex up`, เปิด `net.ipv4.ip_forward=1`, เพิ่มกฎ `iptables -t nat -A POSTROUTING -s 172.24.4.0/24 -o ens3 -j MASQUERADE` และแทรกกฎ `FORWARD` ที่ลำดับ 1 (`-I FORWARD 1`) ระหว่าง `br-ex` ↔ `ens3` จน `ssh cirros@172.24.4.122` และ `ping -c 4 8.8.8.8` (`0% packet loss`) ทำงานได้สำเร็จ
 
 #### 4.2 สิ่งที่ไม่ได้อยู่ในขอบเขตและข้อจำกัดของสภาพแวดล้อม (Out of Scope & Limitations)
-1. **การออกอินเทอร์เน็ตภายนอกและการจัดสรร Floating IP ให้วีเอ็มชั้นใน (บทที่ ๑.2.15):** เนื่องจาก Host VM มีอินเทอร์เฟซเครือข่ายจริงเพียงขาเดียว (`ens3`) และใช้อินเทอร์เฟซจำลอง `dummy0` สำหรับ `br-ex` ทำให้ไม่มีเครือข่ายภายนอก (`provider1`) ที่เชื่อมต่อออกสู่อินเทอร์เน็ตจริง วีเอ็มชั้นในจึงสื่อสารได้ภายในเครือข่ายเสมือนของตนเอง แต่ไม่สามารถ `ping www.google.com` หรือรับ Floating IP เพื่อเข้าถึงจากนอกคลาวด์ได้โดยตรง
+1. **การตั้งค่า External NAT (`br-ex`) เป็นแบบชั่วคราว (Runtime NAT):** เพื่อความปลอดภัยไม่แก้ไข Interface `ens3` ที่ใช้ SSH ของกลุ่ม การเปิดใช้งาน Floating IP (`172.24.4.122`) และการออกอินเทอร์เน็ต (`ping 8.8.8.8`) จึงใช้วิธีตั้ง IP `172.24.4.1/24` บน `br-ex` และกฎ `iptables` แบบ Runtime บน `controller01` ซึ่งค่าส่วนนี้จะไม่คงอยู่ถาวรหากเครื่อง `controller01` ถูกรีบูต (ต้องสั่งตั้งค่าใหม่หลังบูต)
 2. **การใช้งานหน่วยเก็บข้อมูล Volume ของ Cinder (บทที่ ๑.2.17 – ๑.2.18 และ ๑.2.21):** โครงงานนี้มุ่งเน้นส่วนประกอบพื้นฐานเพื่อรันวีเอ็มผ่าน Local Storage ของ Compute Node จึงปิดบริการ Cinder (`enable_cinder: false`) และไม่ได้ทดสอบการสร้าง Boot Volume หรือการทำ Hot Plug ดิสก์เพิ่มเติม
 3. **ความทนทานต่อความเสียหาย (Non-HA):** ระบบประกอบด้วย 1 Controller และ 1 Compute Node ตามขอบเขตของหัวข้อที่ 4 จึงไม่รองรับการทำ Failover หากโฮสต์ใดโฮสต์หนึ่งหยุดทำงาน
 
@@ -194,11 +205,11 @@
    - วิเคราะห์และแก้ไขปัญหาพอร์ต `3306` ชนกันระหว่าง MariaDB และ ProxySQL ด้วยการจัดการ `systemd` units จนการติดตั้งสำเร็จครบทุกบริการ
    - จัดทำไฟล์ตัวอย่าง Configuration ที่ตัดข้อมูลความลับออกแล้ว (`config/*.example`) ขึ้น GitHub และเรียบเรียงเนื้อหารายงานส่วนการติดตั้ง
 3. **สมาชิกคนที่ 3 — [ชื่อ-นามสกุล] รหัสนักศึกษา [XXXXXXXXXX] (Testing, Administration & Documentation):**
-   - ศึกษาคู่มือการใช้งานโอเพนสแตค (บทที่ ๑) และออกแบบตาราง Test Cases (TC-01 ถึง TC-14) ให้สอดคล้องกับสถาปัตยกรรมของกลุ่ม
+   - ศึกษาคู่มือการใช้งานโอเพนสแตค (บทที่ ๑) และออกแบบตาราง Test Cases (`TC-01` ถึง `TC-16`) ให้สอดคล้องกับสถาปัตยกรรมของกลุ่ม
    - ตรวจสอบสถานะการทำงานของ Services, Hypervisor และ Network Agents ทั้งผ่าน OpenStack CLI และ Horizon Dashboard (ผ่าน SSH Tunnel)
-   - ทดสอบและสาธิตการใช้งานระดับผู้ใช้: การจัดการ Image, Flavor, เครือข่ายเสมือน VXLAN, เร้าเตอร์เสมือน, กลุ่มกฎไฟร์วอลล์ `SSH-ICMP`, คู่คีย์ Key Pair, การสร้างวีเอ็ม CirrOS บน `compute01` และการเข้าใช้งานผ่านคอนโซล noVNC
+   - ทดสอบและสาธิตการใช้งานระดับผู้ใช้: การจัดการ Image, Flavor, เครือข่ายเสมือน 2 วง (`cs223-private-net`, `cs223-net-2`), เครือข่ายภายนอก `ext-net` + Runtime NAT บน `br-ex`, เร้าเตอร์ `cs223-router`, Floating IP `172.24.4.122`, กลุ่มกฎไฟร์วอลล์ `SSH-ICMP`, คู่คีย์ `cs223-key`, การสร้าง VM 2 เครื่องบน `compute01` และการทดสอบ noVNC, `ssh` ข้าม Subnet และ `ping 8.8.8.8`
    - ทดสอบและสาธิตงานผู้ดูแลระบบตามแนวคิด RBAC `(User, Role, Scope)` Tuple: การสร้าง `Project-A`, การสร้างผู้ใช้ `A-user` พร้อมกำหนดบทบาท `member` และการปรับเปลี่ยนค่า Quota ของโปรเจกต์
-   - รวบรวมและตรวจสอบความปลอดภัยของภาพหลักฐาน (ตัด Token/ซ่อนรหัสผ่าน) เรียบเรียงรูปเล่มรายงานฉบับสมบูรณ์ และประสานงานการผลิตวิดีโอสาธิต (Demo Video)
+   - รวบรวมและตรวจสอบความปลอดภัยของภาพหลักฐาน (ตัด Token/ซ่อนรหัสผ่าน ครบ 33 ไฟล์ใน `evidence/`), เรียบเรียงรูปเล่มรายงานฉบับสมบูรณ์ และประสานงานการผลิตวิดีโอสาธิต (Demo Video)
 
 ---
 
@@ -250,12 +261,12 @@
   2. **เข้าสู่ระบบ Horizon:** อธิบายการเปิด SSH Local Port Forwarding พอร์ต `8080` แล้วล็อกอินด้วยบัญชี `admin`
   3. **แสดงทรัพยากรตามตำราบทที่ ๑:**
      - เปิดดู Image `cirros-0.6.3` (`Active`) และ Flavor `cs223.tiny`
-     - เปิดหน้า **Network Topology** โชว์เครือข่าย VXLAN `cs223-private-net` (`10.10.10.0/24`, MTU 1400) ที่เชื่อมกับ `cs223-router` (`10.10.10.1`)
+     - เปิดหน้า **Network Topology** โชว์เครือข่าย `ext-net` ↔ `cs223-router` ↔ 2 เครือข่าย VXLAN (`cs223-private-net` `10.10.10.0/24` และ `cs223-net-2` `10.20.20.0/24`, MTU 1400) พร้อมแสดง Floating IP (`172.24.4.122`)
      - เปิดหน้า **Security Groups** โชว์กลุ่มกฎ `SSH-ICMP` (เปิด `ALL ICMP` และ `SSH` พอร์ต 22)
-  4. **สาธิตการสร้างและใช้งาน Test Instance:**
+  4. **สาธิตการสร้างและใช้งาน Test Instances, Routing & Floating IP:**
      - กด **Launch Instance** ให้เห็นขั้นตอนการตั้งค่า (ย้ำจุดสำคัญ: เลือก **`Create New Volume = No`** ตามภาพ ๑-21 ในตำราอาจารย์ เพราะปิด Cinder ไว้)
-     - โชว์ `cs223-test-vm` สถานะ `ACTIVE` รันอยู่บน `compute01`
-     - เปิด **noVNC Console** (ผ่าน SSH Tunnel พอร์ต `6080` — ระวังไม่ให้เห็น Token ในคลิป) ล็อกอินเข้า CirrOS แล้วรัน `ip -4 addr show eth0` โชว์ IP `10.10.10.117/24` และ `mtu 1400` จาก DHCP พร้อมทดสอบ `ping -c 4 10.10.10.100` และ `ping -c 4 10.10.10.1`
+     - โชว์ `cs223-test-vm` (`10.10.10.117`, FIP `172.24.4.122`) และ `cs223-vm-2` (`10.20.20.78`) สถานะ `ACTIVE` รันอยู่บน `compute01`
+     - เปิด **noVNC Console** (ผ่าน SSH Tunnel พอร์ต `6080` — ระวังไม่ให้เห็น Token ในคลิป) ล็อกอินเข้า CirrOS แล้วรัน `ip -4 addr show eth0` โชว์ IP `10.10.10.117/24` และ `mtu 1400`, ทดสอบ `ping -c 4 10.10.10.100` / `10.10.10.1`, `ssh cirros@10.20.20.78` ข้าม Router ไปหา `cs223-vm-2`, `ssh cirros@172.24.4.122` จาก `controller01` และ `ping -c 4 8.8.8.8` ออกอินเทอร์เน็ต (`0% packet loss`)
      - ทดลองกด **Pause / Unpause Instance** โชว์การควบคุมสถานะ VM
 
 ### ฉากที่ 4: งาน Admin (RBAC & Quota) และสรุปปัญหาที่พบ (คนที่ 3 ร่วมกับทีม — ~3 นาที)
@@ -267,4 +278,5 @@
      - ทดลอง **Sign Out จาก `admin` แล้ว Sign In ด้วย `A-user`** เพื่อพิสูจน์ว่า `A-user` เห็นเฉพาะ Project ของตัวเองและ **ไม่เห็นแท็บ `Admin`** ตามหลัก RBAC
   2. **สรุปปัญหาและการแก้ไข:**
      - เล่าปัญหา MariaDB ชนกับ ProxySQL ที่พอร์ต `3306` และการหยุด `kolla-proxysql-container.service` ผ่าน `systemd`
-     - สรุปข้อจำกัดของ Lab (`dummy0` ไม่ออกเน็ตจริง, Non-HA, ปิด Cinder) และกล่าวสรุปปิดการนำเสนอ
+     - เล่าปัญหา `Destination Host Unreachable` ก่อนตั้ง IP บน `br-ex` และการตั้ง Runtime NAT (`172.24.4.1/24` + `iptables MASQUERADE`) เพื่อให้ออกเน็ตได้โดยไม่แตะ `ens3`
+     - สรุปข้อจำกัดที่เหลือของ Lab (Host NAT เป็นแบบชั่วคราวใน RAM, Non-HA, ปิด Cinder) และกล่าวสรุปปิดการนำเสนอ

@@ -5,7 +5,7 @@
 
 ## สถานะโครงงาน
 
-**Deployment และการทดสอบระบบพื้นฐาน: สำเร็จ** (ผลการทดสอบที่บันทึกไว้ ณ วันที่ 17 พฤศจิกายน 2026)
+**Deployment และการทดสอบระบบ: สำเร็จครบวงจร** (อัปเดตผลการทดสอบล่าสุด ณ วันที่ 18 พฤศจิกายน 2026)
 
 - ✅ `bootstrap-servers`, `prechecks`, `deploy` และ `post-deploy` สำเร็จ
 - ✅ บริการหลักของ OpenStack ทำงาน และ `controller01` มองเห็น `compute01`
@@ -13,11 +13,13 @@
 - ✅ VM Boot ได้ เข้าถึงผ่าน noVNC และได้รับ IPv4 จาก Neutron DHCP
 - ✅ เข้าสู่ระบบ Horizon Dashboard ด้วยบัญชีผู้ดูแลระบบได้
 - ✅ สร้าง Router (`cs223-router`), Security Group (`SSH-ICMP`), Key Pair (`cs223-key`) และทดสอบ Ping ข้ามโฮสต์ถึง Gateway (`10.10.10.1`) สำเร็จ
+- ✅ ทดสอบ Virtual Routing ข้าม 2 เครือข่าย (`cs223-private-net` `10.10.10.0/24` ↔ `cs223-net-2` `10.20.20.0/24`) และ `ssh` จาก `cs223-test-vm` ไปยัง `cs223-vm-2` (`10.20.20.78`) สำเร็จ
+- ✅ ตั้งค่า External Network (`ext-net` `172.24.4.0/24` บน `physnet1:br-ex` + runtime NAT/Forwarding บน `controller01`), ผูก Floating IP (`172.24.4.122`), ทดสอบ `ssh cirros@172.24.4.122` และ `ping -c 4 8.8.8.8` (`0% packet loss`) สำเร็จ
 - ✅ ทดสอบงาน Admin (`Project-A`, `A-user`, Role `member` RBAC และ Quota) ผ่านทั้ง Horizon และ OpenStack CLI
 - 📄 จัดทำเอกสาร `docs/` ครบ 9 ไฟล์, Configuration Examples 4 ไฟล์ และ Verification Script แล้ว
-- 📸 รวบรวม Screenshot จริงครบ **11/11 ภาพพื้นฐาน** พร้อมภาพทดสอบฝั่ง QA/Admin ของคนที่ 3 อีก **13 ภาพ** (รวม **24 ภาพ** ใน `evidence/`)
+- 📸 รวบรวมหลักฐานจริงครบ **11/11 ภาพพื้นฐาน** พร้อมภาพทดสอบฝั่ง QA/Admin/Networking ของคนที่ 3 อีก **22 ภาพ** (รวม **33 ไฟล์** ใน `evidence/`)
 
-> **ขอบเขตสำคัญ:** ระบบนี้ออกแบบเป็น **Single Controller + Single Compute Node** สำหรับการเรียนและการทดลอง ไม่ใช่ระบบ Production หรือ High Availability (HA) และเนื่องจากใช้ `dummy0` เป็น External Interface จำลอง จึงยังไม่ได้ยืนยันการออกอินเทอร์เน็ตภายนอกหรือ Floating IP จากนอก Lab เข้าสู่ Guest VM
+> **ขอบเขตสำคัญ:** ระบบนี้ออกแบบเป็น **Single Controller + Single Compute Node** สำหรับการเรียนและการทดลอง ไม่ใช่ระบบ Production หรือ High Availability (HA) และสำหรับ Lab External Uplink (`ext-net` `172.24.4.0/24` บน `br-ex` ซึ่งผูก `dummy0` ไว้ใน Kolla) ได้ตั้งค่า IP Gateway (`172.24.4.1/24`), `ip_forward=1` และ `iptables MASQUERADE` ออกทาง `ens3` แบบ **Runtime (ชั่วคราวใน RAM ของ `controller01`)** เพื่อให้ทดสอบ Floating IP และออกอินเทอร์เน็ตได้จริงโดยไม่แก้ Interface `ens3` ของกลุ่ม (ค่า Host NAT จะไม่คงอยู่หาก `controller01` รีบูต)
 
 ---
 
@@ -54,21 +56,27 @@
 ```mermaid
 flowchart TB
     USER["ผู้ใช้งานบน Windows / WSL"]
-    CTRL["controller01<br/>192.168.1.160<br/>Control / Network / Deployment"]
+    INET["Internet (8.8.8.8)<br/>via controller01 ens3 NAT"]
+    CTRL["controller01<br/>192.168.1.160<br/>Control / Network / br-ex NAT (172.24.4.1)"]
     COMP["compute01<br/>192.168.1.7<br/>Compute Node"]
     API["Keystone · Nova API · Glance<br/>Placement · Neutron · Horizon"]
     INFRA["MariaDB · RabbitMQ<br/>Memcached · Open vSwitch"]
-    RTR["cs223-router (10.10.10.1)<br/>Neutron L3 / DHCP (10.10.10.100)"]
+    EXT["ext-net (Flat · physnet1:br-ex)<br/>172.24.4.0/24"]
+    RTR["cs223-router<br/>ext: 172.24.4.195<br/>gw1: 10.10.10.1 · gw2: 10.20.20.1"]
     HYP["Nova Compute · Libvirt / QEMU-KVM<br/>Open vSwitch"]
-    VM["cs223-test-vm<br/>CirrOS 0.6.3 · SG: SSH-ICMP<br/>10.10.10.117"]
+    VM1["cs223-test-vm (cs223-private-net)<br/>10.10.10.117 · FIP: 172.24.4.122"]
+    VM2["cs223-vm-2 (cs223-net-2)<br/>10.20.20.78 · SG: SSH-ICMP"]
 
     USER -->|"SSH Tunnel / CLI / Horizon"| CTRL
     CTRL --> API
     CTRL --> INFRA
-    CTRL --> RTR
+    CTRL --> EXT --> RTR
     CTRL <-->|"Underlay: 192.168.1.0/24 (MTU 1450)<br/>VXLAN Overlay (MTU 1400)"| COMP
-    COMP --> HYP --> VM
-    RTR -.->|"Ping Gateway & DHCP OK"| VM
+    COMP --> HYP --> VM1
+    HYP --> VM2
+    RTR -.->|"SNAT / FIP 172.24.4.122<br/>ping 8.8.8.8 OK"| VM1
+    RTR -.->|"Inter-Subnet Routing<br/>ssh 10.20.20.78 OK"| VM2
+    CTRL -->|"iptables MASQUERADE"| INET
 ```
 
 ### Nodes และ Network
@@ -85,11 +93,11 @@ flowchart TB
 การตั้งค่า Network สำคัญ:
 
 - **Underlay Network:** `192.168.1.0/24` โดยมี MTU 1450
-- **Tenant/Internal Network:** `cs223-private-net` ใช้ VXLAN และ MTU 1400
-- **Subnet:** `cs223-private-subnet` (`10.10.10.0/24`)
-- **DHCP Pool:** `10.10.10.100`–`10.10.10.200`
-- **Subnet Gateway (`cs223-router`):** `10.10.10.1` (สร้าง Router `cs223-router` เชื่อมต่อ `cs223-private-subnet` และทดสอบ Ping สำเร็จแล้ว)
-- **External Interface สำหรับ Lab:** `dummy0` บน Controller (ไม่ใช่ Physical Uplink ที่ยืนยันการออกอินเทอร์เน็ตได้)
+- **Tenant/Internal Network 1:** `cs223-private-net` (`cs223-private-subnet` `10.10.10.0/24`, Pool `10.10.10.100`–`10.10.10.200`, VXLAN MTU `1400`)
+- **Tenant/Internal Network 2:** `cs223-net-2` (`cs223-subnet-2` `10.20.20.0/24`, VXLAN MTU `1400`)
+- **Virtual Router (`cs223-router`):** เชื่อม Internal Interfaces `10.10.10.1` + `10.20.20.1` และ External Gateway `172.24.4.195` (`enable_snat: true`)
+- **External Network (`ext-net`):** ชนิด Flat (`physnet1:br-ex`), Subnet `172.24.4.0/24`, Pool `172.24.4.100`–`172.24.4.200`, Gateway `172.24.4.1` (ตั้งค่า IP บน OVS `br-ex` คู่กับ `dummy0` และ `iptables MASQUERADE` ออกทาง `ens3` แบบ Runtime บน `controller01`)
+- **Floating IP ที่ทดสอบ:** `172.24.4.122` ผูกกับ `cs223-test-vm` (`10.10.10.117`) สำหรับ SSH เข้า VM และทดสอบ Internet Egress (`ping 8.8.8.8`)
 
 > IP ข้างต้นใช้บันทึกสภาพแวดล้อมที่ทดสอบจริงใน Lab เท่านั้น ไม่ใช่ชุด IP ที่จำเป็นต้องใช้กับทุก Deployment
 
@@ -180,19 +188,20 @@ kolla-ansible post-deploy -i ~/multinode
 | DHCP ใน Guest OS | `eth0` ได้รับ `10.10.10.117/24` | ✅ ผ่าน |
 | noVNC Console | Login เข้าสู่ CirrOS Shell ได้ | ✅ ผ่าน |
 | Horizon Dashboard | Login และเปิด Overview ได้ | ✅ ผ่าน |
+| Inter-Subnet Virtual Routing | `cs223-test-vm` (`10.10.10.117`) `ssh` ข้าม `cs223-router` ไปยัง `cs223-vm-2` (`10.20.20.78`) สำเร็จ | ✅ ผ่าน |
+| External Network & Floating IP SSH | `ext-net` (`172.24.4.0/24`), `ssh cirros@172.24.4.122` จาก `controller01` เข้า `cs223-test-vm` สำเร็จ | ✅ ผ่าน |
+| Guest Internet Egress | ใน `cs223-test-vm` สั่ง `ping -c 4 8.8.8.8` ได้ `0% packet loss` ผ่าน `br-ex` NAT | ✅ ผ่าน |
 
-### Test Instance
+### Test Instances
 
-| รายการ | ค่า |
-|---|---|
-| Instance | `cs223-test-vm` |
-| Image | `cirros-0.6.3` |
-| Flavor | `cs223.tiny` |
-| vCPU / RAM / Root Disk | 1 vCPU / 512 MB / 1 GB |
-| Compute Host | `compute01` |
-| Network | `cs223-private-net` |
-| IPv4 | `10.10.10.117/24` |
-| Status | `ACTIVE` |
+| รายการ | VM #1 (`cs223-test-vm`) | VM #2 (`cs223-vm-2`) |
+|---|---|---|
+| Image | `cirros-0.6.3` | `cirros-0.6.3` |
+| Flavor | `cs223.tiny` (1 vCPU / 512 MB / 1 GB) | `cs223.tiny` (1 vCPU / 512 MB / 1 GB) |
+| Compute Host | `compute01` | `compute01` |
+| Network & Fixed IP | `cs223-private-net` (`10.10.10.117/24`) | `cs223-net-2` (`10.20.20.78/24`) |
+| Floating IP / Key Pair | `172.24.4.122` / Security Group `SSH-ICMP` | Key Pair `cs223-key` / Security Group `SSH-ICMP` |
+| Status | `ACTIVE` | `ACTIVE` |
 
 ใน CirrOS Console ได้ตรวจสอบด้วยคำสั่ง:
 
@@ -242,7 +251,7 @@ CLI ถูกติดตั้งแยกไว้ที่ `~/openstack-cli-v
 
 ## โครงสร้าง Repository และเอกสาร
 
-โครงสร้างของ Repository (แสดงไฟล์เอกสาร, Configuration Examples และหลักฐานภาพจริงทั้ง 24 ภาพที่จัดเก็บแล้ว):
+โครงสร้างของ Repository (แสดงไฟล์เอกสาร, Configuration Examples และหลักฐานภาพจริงทั้ง 33 ไฟล์ที่จัดเก็บแล้ว):
 
 ```text
 CS223-TermProject/
@@ -282,14 +291,23 @@ CS223-TermProject/
 │   │   ├── 02-cirros-console.png
 │   │   ├── 03-cirros-network.png
 │   │   ├── 04-cirros-ping-gateway.png
-│   │   └── 05-instance-paused.png
+│   │   ├── 05-instance-paused.png
+│   │   ├── 06-vm-ssh-inter-subnet.png
+│   │   ├── 07-controller-br-ex-nat-floating-ip-ssh.jpg
+│   │   ├── 08-vm-ping-internet.png
+│   │   └── 09-cli-multi-network-floating-ip.png
 │   ├── 04-horizon/
 │   │   ├── 01-horizon-dashboard.png
 │   │   ├── 02-security-group-ssh-icmp.png
 │   │   ├── 03-network-topology.png
 │   │   ├── 04-key-pairs.png
 │   │   ├── 05-horizon-images.png
-│   │   └── 06-horizon-flavors.png
+│   │   ├── 06-horizon-flavors.png
+│   │   ├── 07-horizon-networks-ext.png
+│   │   ├── 08-horizon-router-interfaces.png
+│   │   ├── 09-horizon-network-topology-ext.png
+│   │   ├── 10-horizon-floating-ips.png
+│   │   └── 11-horizon-instances-multi.png
 │   └── 05-admin/
 │       ├── 01-project-a-edit-quotas.png
 │       ├── 02-a-user-rbac-overview.png
@@ -314,7 +332,7 @@ Configuration Examples: [Ansible Inventory](config/multinode.example) · [Kolla 
 
 ## หลักฐานการทดสอบ (Evidence)
 
-ภาพหลักฐานจริงทั้งหมด **24 ภาพ** ถูกตรวจสอบและจัดเก็บครบถ้วนแล้ว (ตัดส่วน Address Bar ที่มี noVNC Token, ซ่อนข้อมูลลับ และไม่แสดง Outer Floating IP เพื่อความปลอดภัยสำหรับ Public Repository)
+ภาพหลักฐานจริงทั้งหมด **33 ไฟล์** ถูกตรวจสอบและจัดเก็บครบถ้วนแล้ว (ตัดส่วน Address Bar ที่มี noVNC Token, ซ่อนข้อมูลลับ และไม่แสดง Outer Floating IP เพื่อความปลอดภัยสำหรับ Public Repository)
 
 ### ภาพหลักฐาน Baseline ของการติดตั้งและระบบหลัก — 11 ภาพ (ครบ 11/11)
 
@@ -350,9 +368,23 @@ Configuration Examples: [Ansible Inventory](config/multinode.example) · [Kolla 
 | Admin (RBAC) | [02-a-user-rbac-overview.png](evidence/05-admin/02-a-user-rbac-overview.png) | ล็อกอินด้วย `A-user` เข้า `Project-A` (ไม่มีแท็บ Admin และ Quota ตรงตามกำหนด) |
 | Admin (CLI) | [03-cli-router-secgroup-rbac-quota.png](evidence/05-admin/03-cli-router-secgroup-rbac-quota.png) | ผล CLI ยืนยัน `router`, `SSH-ICMP`, `role assignment` และ `quota show Project-A` |
 
-**ตัวอย่างภาพหลักฐาน — Horizon หลัง Login:**
+### ภาพหลักฐานเพิ่มเติม — Virtual Router 2 วง, External Network, Floating IP & Internet Egress (18 พ.ย.) — 9 ภาพ
 
-![OpenStack Horizon Dashboard หลังเข้าสู่ระบบสำเร็จ](evidence/04-horizon/01-horizon-dashboard.png)
+| หมวด | ภาพหลักฐาน | สิ่งที่ยืนยัน |
+|---|---|---|
+| Inter-Subnet SSH | [06-vm-ssh-inter-subnet.png](evidence/03-vm-validation/06-vm-ssh-inter-subnet.png) | SSH จาก `cs223-test-vm` (`10.10.10.117`) ข้าม `cs223-router` ไป `cs223-vm-2` (`10.20.20.78`, `mtu 1400`) |
+| `br-ex` NAT & FIP SSH | [07-controller-br-ex-nat-floating-ip-ssh.jpg](evidence/03-vm-validation/07-controller-br-ex-nat-floating-ip-ssh.jpg) | ตั้ง `br-ex` (`172.24.4.1/24`), `iptables` NAT/Forward และ `ssh cirros@172.24.4.122` เข้า `cs223-test-vm` |
+| Internet Egress | [08-vm-ping-internet.png](evidence/03-vm-validation/08-vm-ping-internet.png) | จาก `cs223-test-vm` รัน `ping -c 4 8.8.8.8` ได้ผล `4 received, 0% packet loss` |
+| CLI Summary | [09-cli-multi-network-floating-ip.png](evidence/03-vm-validation/09-cli-multi-network-floating-ip.png) | ผล CLI `network list`, `router show cs223-router`, `floating ip list`, `server list` |
+| Horizon Networks | [07-horizon-networks-ext.png](evidence/04-horizon/07-horizon-networks-ext.png) | หน้า *Networks* แสดงครบ 3 วง (`ext-net`, `cs223-private-net`, `cs223-net-2`) |
+| Router Interfaces | [08-horizon-router-interfaces.png](evidence/04-horizon/08-horizon-router-interfaces.png) | หน้า *cs223-router > Interfaces* แสดง `10.10.10.1`, `10.20.20.1` และ External Gateway `172.24.4.195` |
+| Network Topology (Full) | [09-horizon-network-topology-ext.png](evidence/04-horizon/09-horizon-network-topology-ext.png) | ผังรวม `ext-net` ↔ `cs223-router` ↔ `cs223-private-net` (`cs223-test-vm`) + `cs223-net-2` (`cs223-vm-2`) |
+| Floating IPs | [10-horizon-floating-ips.png](evidence/04-horizon/10-horizon-floating-ips.png) | หน้า *Floating IPs* แสดง `172.24.4.122` ผูกกับ `cs223-test-vm 10.10.10.117` (`Active`) |
+| Horizon Instances (2 VMs) | [11-horizon-instances-multi.png](evidence/04-horizon/11-horizon-instances-multi.png) | หน้า *Instances* แสดง `cs223-vm-2` (`10.20.20.78`) และ `cs223-test-vm` (`10.10.10.117, 172.24.4.122`) |
+
+**ตัวอย่างภาพหลักฐาน — Network Topology แบบ 2 Tenant Networks + External Network (`ext-net`):**
+
+![Network Topology เชื่อมต่อ ext-net, cs223-router, 2 Tenant Networks และ 2 VMs](evidence/04-horizon/09-horizon-network-topology-ext.png)
 
 ตัวอย่าง **Deployment Log Excerpt** ที่กู้คืนจากไฟล์ข้อความเดิม:
 
@@ -364,7 +396,7 @@ localhost    : ok=4    unreachable=0 failed=0
 DEPLOY EXIT STATUS: 0
 ```
 
-ข้อมูลใน Log เป็นผลจากการ Deploy ที่บันทึกไว้เดิม ส่วนภาพ `evidence/` ทั้ง 20 ภาพเป็นหลักฐานที่บันทึกจากการทดสอบจริงของกลุ่ม
+ข้อมูลใน Log เป็นผลจากการ Deploy ที่บันทึกไว้เดิม ส่วนไฟล์ใน `evidence/` ทั้ง 33 ไฟล์เป็นหลักฐานที่บันทึกจากการทดสอบจริงของกลุ่ม
 
 ## ตรวจสอบระบบด้วยสคริปต์
 
@@ -395,11 +427,9 @@ bash scripts/verify-deployment.sh
 ## ข้อจำกัดและสิ่งที่ยังไม่ได้ทดสอบ
 
 - ระบบมี **Controller เพียงเครื่องเดียว** จึงไม่มี High Availability หรือการ Failover ของ Control Plane
-- ใช้ `dummy0` เป็น External Interface สำหรับ Lab; **ยังไม่ได้ยืนยัน External Provider Network หรือ Internet Connectivity**
-- ยังไม่ได้ทดสอบการใช้งาน **Floating IP, External Provider Uplink หรือการออกอินเทอร์เน็ต (North–South Traffic)** (ทดสอบเฉพาะ Router ภายใน `cs223-router` ถึง Gateway `10.10.10.1` แล้ว)
-- ยังไม่ได้ทดสอบการเชื่อมต่อระหว่าง VM หลายเครื่อง (East–West Traffic) หรือการรองรับภาระงานจริง
-- ไม่ได้เปิดใช้ Cinder และ Heat ใน Deployment นี้
-- ผลการทดสอบเป็น **Functional Smoke Test** ไม่ใช่ Benchmark, Security Audit หรือ Production Readiness Assessment
+- การออกอินเทอร์เน็ต (`ext-net` `172.24.4.0/24` → `br-ex` `172.24.4.1/24` + `iptables MASQUERADE` ออก `ens3`) เป็นการตั้งค่า **Runtime NAT บน `controller01`** สำหรับทดสอบ Floating IP และการออกอินเทอร์เน็ต (`ping 8.8.8.8`) หาก `controller01` รีบูตค่า IP บน `br-ex` และกฎ `iptables` จะไม่คงอยู่จนกว่าจะสั่งใหม่ (เพื่อรักษา `ens3` ให้ปลอดภัยและไม่แก้ Network Host แบบถาวร)
+- ไม่ได้เปิดใช้ Cinder Block Storage และ Heat Orchestration ใน Deployment นี้
+- ผลการทดสอบเป็น **Functional Test** (รวม East–West Inter-subnet SSH และ North–South Floating IP / Internet Egress) ไม่ใช่ Performance Benchmark, Security Audit หรือ Production Readiness Assessment
 
 ## ความปลอดภัยและการส่งมอบงาน
 
@@ -422,4 +452,4 @@ Repository นี้เป็น **Public Repository** จึงต้องต�
 **Course:** CS223 — Virtualization Technology  
 **Scope:** OpenStack Multinode Installation, Deployment, Basic Functional Verification และการจัดเก็บหลักฐาน
 
-**Evidence status:** 24 screenshots verified in repository (11/11 baseline + 13 Member 3 QA/Admin screenshots)
+**Evidence status:** 33 files verified in repository (11/11 baseline + 22 Member 3 QA/Admin & Advanced Networking)

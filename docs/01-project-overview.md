@@ -2,7 +2,7 @@
 
 > **CS223 Virtualization Technology | OpenStack Multinode Deployment**  
 > เอกสารภาพรวมโครงงาน วัตถุประสงค์ ขอบเขต สถาปัตยกรรมระดับสูง ผลลัพธ์ที่ตรวจสอบแล้ว และการส่งมอบงาน  
-> **สถานะ ณ วันที่ 17 พฤศจิกายน 2026:** ติดตั้งและทดสอบฟังก์ชันพื้นฐานสำเร็จ; อยู่ระหว่างจัดทำเอกสารและรวบรวมหลักฐาน
+> **สถานะ ณ วันที่ 18 พฤศจิกายน 2026:** ติดตั้ง ทดสอบ Virtual Router 2 วง, External Network/Floating IP (`172.24.4.122`), Internet Egress (`ping 8.8.8.8`) และงาน Admin RBAC/Quota สำเร็จครบถ้วนแล้ว; รวบรวมหลักฐานจริงครบ 33 ไฟล์ใน `evidence/`
 
 [← กลับหน้า README](../README.md) · [Architecture](02-architecture.md) · [Deployment](04-kolla-deployment.md) · [Verification](05-deployment-verification.md) · [Handover](07-handover.md)
 
@@ -16,7 +16,7 @@
 
 ผลการดำเนินงานที่ตรวจสอบแล้วประกอบด้วยการ Deploy บริการหลักสำเร็จ การยืนยันตัวตนผ่าน Keystone การมองเห็น Compute Node ใน Nova การสร้าง Network แบบ VXLAN พร้อม DHCP การอัปโหลด CirrOS Image ไปยัง Glance และการสร้าง VM จริงบน `compute01` ซึ่ง Boot สำเร็จ ได้รับ IPv4 ผ่าน DHCP และสามารถเข้าใช้งานผ่าน noVNC Console ได้ นอกจากนี้ยังเข้าสู่ระบบ Horizon Dashboard ด้วยบัญชีผู้ดูแลระบบได้สำเร็จ
 
-> **ข้อสรุปสำคัญ:** ระบบผ่านการทดสอบด้านการติดตั้งและการใช้งาน VM ขั้นพื้นฐาน (*basic functional verification*) แต่ **ยังไม่ได้รับการทดสอบด้าน High Availability, External Network, Floating IP, ประสิทธิภาพ หรือความพร้อมสำหรับ Production**
+> **ข้อสรุปสำคัญ:** ระบบผ่านการทดสอบทั้งการติดตั้ง, Virtual Routing ข้าม 2 เครือข่าย (`cs223-private-net` ↔ `cs223-net-2`), External Network (`ext-net` + runtime `br-ex` NAT), Floating IP (`172.24.4.122`), Internet Egress (`ping 8.8.8.8`) และงาน Admin RBAC/Quota แล้ว แต่ **ยังไม่ได้รับการทดสอบด้าน High Availability (Non-HA), Persistent Host NAT ข้ามการ Reboot, ประสิทธิภาพ หรือความพร้อมสำหรับ Production**
 
 ## 2. ที่มาและแนวคิด (Background & Motivation)
 
@@ -69,16 +69,16 @@ OpenStack เป็นกรณีศึกษาที่เหมาะสำ�
 | หัวข้อ | สถานะปัจจุบัน |
 |---|---|
 | High Availability / Controller Failover | ไม่อยู่ในขอบเขตของ Topology แบบ Single Controller |
-| External Provider Network ที่เชื่อมต่อออกภายนอกจริง | ยังไม่ได้ทดสอบ; `dummy0` เป็น Interface สำหรับ Lab |
-| Floating IP และการเข้าถึง VM จากเครือข่ายภายนอก | ยังไม่ได้ทดสอบ |
-| การใช้งาน Neutron Router เพื่อส่งทราฟฟิกออกภายนอก | สร้าง `cs223-router` (`10.10.10.1`) และทดสอบ Ping ภายในสำเร็จแล้ว; ยังไม่มี External Uplink ออกอินเทอร์เน็ต |
-| การสื่อสารระหว่าง VM หลายเครื่อง (East–West Traffic) | ยังไม่ได้ทดสอบ |
+| External Provider Network และ NAT บน Host | **PASS (Lab Runtime NAT)** — สร้าง `ext-net` (`172.24.4.0/24` บน `physnet1:br-ex`), ตั้ง IP `172.24.4.1/24` บน `br-ex` และ `iptables MASQUERADE` ออกทาง `ens3` แบบ Runtime (ค่าบน Host ไม่ถาวรหลัง Reboot) |
+| Floating IP และการเข้าถึง VM จากภายนอก | **PASS** — จัดสรรและผูก Floating IP `172.24.4.122` ให้ `cs223-test-vm`, ทดสอบ `ssh cirros@172.24.4.122` สำเร็จ |
+| การใช้งาน Neutron Router ออกอินเทอร์เน็ต | **PASS** — ตั้ง External Gateway `ext-net` (`172.24.4.195`) บน `cs223-router` และจาก `cs223-test-vm` สั่ง `ping -c 4 8.8.8.8` สำเร็จ `0% packet loss` |
+| การสื่อสารระหว่าง VM ข้ามเครือข่าย (East–West Traffic) | **PASS** — สร้าง `cs223-net-2` (`10.20.20.0/24`) + `cs223-vm-2` (`10.20.20.78`) เชื่อม `cs223-router` (`10.20.20.1`) และ `ssh` ข้าม Subnet สำเร็จ |
 | Cinder Block Storage และ Heat Orchestration | ไม่ได้เปิดใช้ใน Deployment นี้ |
 | Performance Benchmark / Load Testing | ยังไม่ได้ทดสอบ |
 | Security Hardening / Penetration Testing / Production Readiness | ไม่ได้ประเมินในโครงงานนี้ |
-| การกู้คืนหลัง Host Reboot / Disaster Recovery | ยังไม่ได้ตรวจสอบแบบครบวงจร |
+| การกู้คืนหลัง Host Reboot / Disaster Recovery | ยังไม่ได้ตรวจสอบแบบครบวงจร (รวมถึงค่า `br-ex` IP/NAT ที่เป็น Runtime) |
 
-**ข้อควรแยกให้ชัด:** การที่ VM Ping ถึง `cs223-router` (`10.10.10.1`) ได้สำเร็จ **ไม่ได้ยืนยัน** ว่าสามารถเชื่อมต่ออินเทอร์เน็ตได้ เนื่องจากยังไม่มี External Provider Uplink จริง (`dummy0` เป็น Interface จำลอง)
+**ข้อควรแยกให้ชัด:** การออกอินเทอร์เน็ตและ Floating IP ใน Lab นี้อาศัย **Runtime NAT (`br-ex` `172.24.4.1/24` + `iptables MASQUERADE` ออก `ens3`)** บน `controller01` เพื่อไม่รบกวน Physical NIC `ens3` ที่ใช้ SSH ของทีม หากเครื่อง `controller01` รีบูตจะต้องรันคำสั่งตั้ง IP บน `br-ex` และ `iptables` ใหม่อีกครั้ง
 
 ## 5. สถาปัตยกรรมระบบระดับสูง (High-Level Architecture)
 
@@ -127,14 +127,12 @@ flowchart TB
 | Underlay MTU | `1450` | MTU ของเครือข่าย Lab ชั้นนอก |
 | Neutron Plugin | Open vSwitch | จัดการ Virtual Switching |
 | Overlay Type | VXLAN | เครือข่ายของ Tenant VM |
-| Tenant Network | `cs223-private-net` | Private Network ที่สร้างสำหรับทดสอบ |
-| Tenant Network MTU | `1400` | MTU หลังเผื่อ VXLAN Encapsulation |
-| Tenant Subnet | `10.10.10.0/24` | IPv4 Subnet สำหรับ Test VM |
-| DHCP Allocation Pool | `10.10.10.100`–`10.10.10.200` | ช่วง IP สำหรับ DHCP Allocation |
-| DHCP Port IP | `10.10.10.100` | Port ของ Neutron DHCP Service |
-| Test VM IP | `10.10.10.117/24` | IPv4 ที่ Guest OS ได้รับจริง |
-| Subnet Gateway (`cs223-router`) | `10.10.10.1` | เชื่อมต่อ `cs223-router` แล้ว และทดสอบ Ping จาก Guest VM สำเร็จ |
-| External Interface สำหรับ Lab | `dummy0` | Interface จำลอง ไม่ใช่ Uplink สู่ Internet |
+| Tenant Network 1 | `cs223-private-net` | Private Network แรก (`cs223-private-subnet` `10.10.10.0/24`, MTU `1400`, DHCP Pool `.100–.200`) |
+| Tenant Network 2 | `cs223-net-2` | Private Network ที่ 2 (`cs223-subnet-2` `10.20.20.0/24`, MTU `1400`) สำหรับทดสอบ Inter-subnet Routing |
+| Test VM #1 (`cs223-test-vm`) | `10.10.10.117/24` (FIP `172.24.4.122`) | VM ทดสอบหลักบน `cs223-private-net` พร้อม Floating IP |
+| Test VM #2 (`cs223-vm-2`) | `10.20.20.78/24` | VM ทดสอบเครื่องที่ 2 บน `cs223-net-2` (Key Pair `cs223-key`) |
+| Virtual Router (`cs223-router`) | `10.10.10.1`, `10.20.20.1`, `172.24.4.195` | เชื่อม 2 Tenant Subnets และ External Gateway `ext-net` (`enable_snat: true`) |
+| External Network (`ext-net`) | `172.24.4.0/24` (`physnet1:br-ex`) | Flat External Network (Pool `.100–.200`, Host Gateway `172.24.4.1` บน `br-ex` + NAT ออก `ens3`) |
 
 ### 5.4 เทคโนโลยีหลัก
 
@@ -222,23 +220,21 @@ sequenceDiagram
 | DHCP ใช้งานได้ | Guest OS ได้รับ `10.10.10.117/24` จาก DHCP | **PASS** |
 | noVNC ใช้งานได้ | เปิด Console ผ่าน SSH Tunnel และ Login เข้า CirrOS Shell ได้ | **PASS** |
 | Horizon ใช้งานได้ | Login ด้วยบัญชี Admin และเปิดหน้า Project Overview ได้ | **PASS** |
+| Inter-Subnet Routing ทำงานได้ | `cs223-test-vm` (`10.10.10.117`) `ssh` ข้าม `cs223-router` ไป `cs223-vm-2` (`10.20.20.78`) สำเร็จ | **PASS** |
+| Floating IP & Internet Egress | `ssh cirros@172.24.4.122` เข้า VM ได้ และ `ping -c 4 8.8.8.8` ได้ `0% packet loss` | **PASS** |
 
-### 8.2 Test Instance ที่ใช้ยืนยันระบบ
+### 8.2 Test Instances ที่ใช้ยืนยันระบบ
 
-| รายการ | ค่าที่ใช้จริง |
-|---|---|
-| Instance Name | `cs223-test-vm` |
-| Compute Host | `compute01` |
-| Image | `cirros-0.6.3` (`qcow2`) |
-| Flavor | `cs223.tiny` |
-| VM Specification | 1 vCPU / 512 MB RAM / 1 GB Root Disk |
-| Tenant Network | `cs223-private-net` |
-| Subnet | `cs223-private-subnet` (`10.10.10.0/24`) |
-| Assigned IP | `10.10.10.117` |
-| Nova Status | `ACTIVE` |
-| Guest OS Verification | `ip -4 addr show eth0` แสดง `10.10.10.117/24` และ `UP, LOWER_UP` |
+| รายการ | `cs223-test-vm` | `cs223-vm-2` |
+|---|---|---|
+| Compute Host | `compute01` | `compute01` |
+| Image / Flavor | `cirros-0.6.3` (`qcow2`) / `cs223.tiny` (1 vCPU / 512 MB / 1 GB) | `cirros-0.6.3` (`qcow2`) / `cs223.tiny` (1 vCPU / 512 MB / 1 GB) |
+| Network / Subnet | `cs223-private-net` (`10.10.10.0/24`) | `cs223-net-2` (`10.20.20.0/24`) |
+| Fixed IP / Floating IP | `10.10.10.117/24` / Floating IP `172.24.4.122` | `10.20.20.78/24` / — (Key Pair `cs223-key`) |
+| Security Group & Status | `SSH-ICMP`, `default` / `ACTIVE` | `SSH-ICMP`, `default` / `ACTIVE` |
+| Guest OS Verification | `eth0` `UP, LOWER_UP`, `mtu 1400`, `ping 8.8.8.8` (`0% loss`), `ssh` ไป `10.20.20.78` | `hostname = cs223-vm-2`, `eth0 10.20.20.78/24`, `mtu 1400` |
 
-**สรุปการยอมรับงานด้านเทคนิค:** เกณฑ์ที่ต้องพิสูจน์ว่าระบบ Deploy ได้และสามารถสร้าง VM บน Compute Node ได้จริง **ผ่านแล้ว** ส่วนการจัดเอกสาร/หลักฐานและการส่งมอบยังเป็นงานที่ต้องจัดการใน Repository ต่อไป
+**สรุปการยอมรับงานด้านเทคนิค:** เกณฑ์ด้านการติดตั้ง, การสร้าง VM ข้ามโหนด, Inter-subnet Virtual Routing, External Network/Floating IP, Internet Egress และการบริหารจัดการ RBAC/Quota **ผ่านครบถ้วนแล้ว** และจัดเก็บหลักฐานภาพจริงครบ 33 ไฟล์ใน `evidence/` แล้ว
 
 ## 9. ความรับผิดชอบและการส่งมอบ (Roles & Responsibilities)
 
